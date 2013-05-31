@@ -1,4 +1,5 @@
 require './peg.rb'
+include PEG
 
 
 describe 'peg' do
@@ -79,7 +80,7 @@ describe Grammar do
     Grammar.new("rule<-'b'/'c'").grammar.should == [Or.new(
       Literal.new('b'), Literal.new('c')).name('rule')]
     Grammar.new("rule_1<-'a'/rule_2\nrule_2<-'b'").grammar.should == [
-      Or.new(Literal.new('a'), Rule.new('rule_2')).name('rule_1'),
+      Or.new(Literal.new('a'), Reference.new('rule_2')).name('rule_1'),
       Literal.new('b').name('rule_2'),
     ]
   end
@@ -93,7 +94,7 @@ describe Grammar do
 
   it 'has comments' do
     Grammar.new("rule_1<-'a'/rule_2#comment\nrule_2<-'b'").grammar.should == [
-      Or.new(Literal.new('a'), Rule.new('rule_2')).name('rule_1'),
+      Or.new(Literal.new('a'), Reference.new('rule_2')).name('rule_1'),
       Literal.new('b').name('rule_2'),
     ]
   end
@@ -102,7 +103,7 @@ describe Grammar do
     Grammar.new("rule <- 'a' !'b' rule2 rule2 <- 'hai'").grammar.should == [
       Sequence.new(Literal.new('a'),
                    Not.new(Literal.new('b')),
-                   Rule.new('rule2')).name('rule'),
+                   Reference.new('rule2')).name('rule'),
       Literal.new('hai').name('rule2'),
     ]
   end
@@ -116,7 +117,7 @@ describe Grammar do
   end
 
   it 'has `.` that matches all' do
-    Grammar.new("rule <- 'a' !.").grammar.should == [
+    Grammar.new('rule <- "a" !.').grammar.should == [
       Sequence.new(Literal.new('a'), Not.new(Regex.new('.'))).name('rule')
     ]
   end
@@ -129,15 +130,54 @@ describe Grammar do
 
   it 'has grouping with (parenthesis)' do
     Grammar.new("rule <- _ ('a' / 'b') _").grammar.should == [
-      Sequence.new(Rule.new('_'),
+      Sequence.new(Reference.new('_'),
                    Or.new(Literal.new('a'), Literal.new('b')),
-                   Rule.new('_')).name('rule')
+                   Reference.new('_')).name('rule')
     ]
+  end
+
+  it 'raises SyntaxError on invalid grammar' do
+    expect do
+      Grammar.new("rule <- [a-z] %$@^")
+    end.to raise_error SyntaxError, "%$@^".inspect
+  end
+
+  it 'can actually parse' do
+    Grammar.new("rule <- 'ru' 'le'").parse('rule').should == {
+      text: 'rule', name: 'rule', children: [{text: 'ru'}, {text: 'le'}]
+    }
   end
 
   it 'raises SyntaxError on invalid syntax' do
     expect do
-      Grammar.new("rule <- [a-z] %$@^")
-    end.to raise_error SyntaxError, "%$@^".inspect
+      Grammar.new("rule <- [a-z]*").parse('abc123')
+    end.to raise_error SyntaxError, "123".inspect
+  end
+end
+
+describe ReferenceResolver do
+  it 'resolves references' do
+    rule1 = Or.new(Reference.new('rule2'), Literal.new('a')).name('rule1')
+    rule2 = Literal.new('b').name('rule2')
+    ReferenceResolver.new([rule1, rule2]).resolve.should ==
+      Or.new(Literal.new('b').name('rule2'), Literal.new('a')).name('rule1')
+  end
+
+  it 'resolves references to references' do
+    rule1 = Reference.new('rule2').name('rule1')
+    rule2 = Reference.new('rule3').name('rule2')
+    rule3 = Literal.new('a').name('rule3')
+    ReferenceResolver.new([rule1, rule2, rule3]).resolve.should ==
+      Literal.new('a').name('rule3')
+  end
+end
+
+
+require './json_example'
+
+
+describe JSON do
+  it 'has numbers' do
+    JSON.eval('42').should == 42
   end
 end
