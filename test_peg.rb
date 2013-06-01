@@ -1,76 +1,68 @@
-require './peg.rb'
+require './peg'
 include PEG
 
 
 describe 'peg' do
   it 'literal' do
-    Literal.new('aaa').match('aaa...').should == {text: 'aaa'}
+    Literal.new('aaa').match('aaa...').should == Node.new('aaa')
     Literal.new('aaa').match('......').should == nil
   end
 
   it 'regex' do
-    Regex.new('a*').match('aaa...').should == {text: 'aaa'}
+    Regex.new('a*').match('aaa...').should == Node.new('aaa')
     Regex.new('a+').match('......').should == nil
   end
 
   it 'sequence' do
     grammar = Sequence.new(Regex.new('a*'), Literal.new('bbb'))
-    grammar.match('aaabbb...').should == {text: 'aaabbb',
-                                          children: [{text: 'aaa'},
-                                                     {text: 'bbb'}]}
+    grammar.match('aaabbb...').should == Node.new('aaabbb', [Node.new('aaa'),
+                                                             Node.new('bbb')])
     grammar.match('aaa......').should == nil
   end
 
   it 'or' do
     grammar = Or.new(Regex.new('a+'), Regex.new('b+'))
-    grammar.match('aabb').should == {text: 'aa', children: [{text: 'aa'}]}
-    grammar.match('bbb...').should == {text: 'bbb', children: [{text: 'bbb'}]}
+    grammar.match('aabb').should == Node.new('aa', [Node.new('aa')])
+    grammar.match('bbb...').should == Node.new('bbb', [Node.new('bbb')])
     grammar.match('...').should == nil
   end
 
   it 'not' do
-    Not.new(Regex.new('.')).match('').should == {text: ''}
+    Not.new(Regex.new('.')).match('').should == Node.new('')
     Not.new(Regex.new('.')).match('aa').should == nil
   end
 
   it 'and' do
-    And.new(Literal.new('a')).match('a').should == {text: ''}
+    And.new(Literal.new('a')).match('a').should == Node.new('')
     And.new(Literal.new('a')).match('b').should == nil
   end
 
   it 'optional' do
     grammar = Sequence.new(Optional.new(Literal.new('a')), Literal.new('b'))
-    grammar.match('ab').should == {
-      text: 'ab', children: [{text: 'a', children: [{text: 'a'}]},
-                             {text: 'b'}]}
-    grammar.match('b').should == {
-      text: 'b', children: [{text: '', children: []},
-                            {text: 'b'}]}
+    grammar.match('ab').should == Node.new('ab',
+      [Node.new('a', [Node.new('a')]), Node.new('b')])
+    grammar.match('b').should == Node.new('b', [Node.new(''), Node.new('b')])
   end
 
   it 'one or more' do
     grammar = OneOrMore.new(Literal.new('a'))
     grammar.match('.').should == nil
-    grammar.match('a.').should == {text: 'a', children: [{text: 'a'}]}
-    grammar.match('aaa.').should == {text: 'aaa', children: [{text: 'a'},
-                                                             {text: 'a'},
-                                                             {text: 'a'}]}
+    grammar.match('a.').should == Node.new('a', [Node.new('a')])
+    grammar.match('aaa.').should == Node.new('aaa', [Node.new('a')] * 3)
   end
 
   it 'zero or more' do
     grammar = ZeroOrMore.new(Literal.new('a'))
-    grammar.match('.').should == {text: '', children: []}
-    grammar.match('aaa.').should == {text: 'aaa', children: [{text: 'a'},
-                                                             {text: 'a'},
-                                                             {text: 'a'}]}
-    ZeroOrMore.new(Regex.new('')).match('a').should == {text: '',
-                                                        children: [{text: ''}]}
+    grammar.match('.').should == Node.new('')
+    grammar.match('aaa.').should == Node.new('aaa', [Node.new('a')] * 3)
+    grammar = ZeroOrMore.new(Regex.new(''))
+    grammar.match('a').should == Node.new('', [Node.new('')])
   end
 
   it 'named' do
     grammar = Literal.new('->').name('arrow')
     grammar.name.should == 'arrow'
-    grammar.match('->').should == {name: 'arrow', text: '->'}
+    grammar.match('->').should == Node.new('->', [], 'arrow')
   end
 end
 
@@ -143,9 +135,8 @@ describe Grammar do
   end
 
   it 'can actually parse' do
-    Grammar.new("rule <- 'ru' 'le'").parse('rule').should == {
-      text: 'rule', name: 'rule', children: [{text: 'ru'}, {text: 'le'}]
-    }
+    Grammar.new("rule <- 'ru' 'le'").parse('rule').should == Node.new('rule',
+      [Node.new('ru'), Node.new('le')], 'rule')
   end
 
   it 'raises SyntaxError on invalid syntax' do

@@ -6,11 +6,11 @@ class JSONLanguage < PEG::Language
   end
 
   rule 'number <- [0-9]+' do |node, children|
-    node[:text].to_i
+    node.text.to_i
   end
 
   rule 'string <- ["] [a-z]* ["]' do |node, children|
-    Kernel.eval(node[:text])
+    Kernel.eval(node.text)
   end
 end
 

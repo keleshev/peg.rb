@@ -1,9 +1,9 @@
 module PEG
   class Node
-    attr_accessor :text, :name, :children
+    attr_accessor :text, :children, :name
 
-    def initialize(text, name='', children=[])
-      @text, @name, @children = text, name, children
+    def initialize(text, children=[], name=nil)
+      @text, @children, @name = text, children, name
     end
 
     def ==(other)
@@ -11,7 +11,7 @@ module PEG
     end
 
     def inspect
-      "#{self.class}.new(#{text.inspect}, #{name.inspect}, #{children.inspect})"
+      "#{self.class}.new(#{text.inspect}, #{children.inspect}, #{name.inspect})"
     end
   end
 
@@ -27,10 +27,8 @@ module PEG
       end
     end
 
-    def result(text, children=nil)
-      res = {text: text}
-      children ? res.merge!({children: children}) : res
-      @name ? res.merge!({name: @name}) : res
+    def result(text, children=[])
+      Node.new(text, children, @name)
     end
 
     def inspect
@@ -73,14 +71,14 @@ module PEG
       text_ = String.new(text)
       len = 0
       children = []
-      @children.each do |member|
-        res = member.match(text_)
-        if res == nil
+      @children.each do |child|
+        node = child.match(text_)
+        if node == nil
           return nil
         else
-          children << res
-          text_ = text_.slice res[:text].length..text_.length
-          len += res[:text].length
+          children << node
+          text_ = text_.slice node.text.length..text_.length
+          len += node.text.length
         end
       end
       result(text.slice(0...len), children)
@@ -93,9 +91,9 @@ module PEG
 
   class Or < Sequence
     def match(text)
-      @children.each do |member|
-        res = member.match(text)
-        return result(res[:text], [res]) if res
+      @children.each do |child|
+        node = child.match(text)
+        return result(node.text, [node]) if node
       end
       nil
     end
@@ -123,12 +121,12 @@ module PEG
       len = 0
       children = []
       loop do
-        res = @children[0].match(text_)
-        break if not res
-        children << res
-        break if res[:text] == ''
-        text_ = text_.slice res[:text].length..text_.length
-        len += res[:text].length
+        node = @children[0].match(text_)
+        break if not node
+        children << node
+        break if node.text == ''
+        text_ = text_.slice node.text.length..text_.length
+        len += node.text.length
       end
       range.include?(children.length) ? result(text.slice(0...len),
                                                children) : nil
@@ -162,24 +160,24 @@ module PEG
   class Grammar
     def initialize(source)
       @_grammar = node = self.class._peg.match(source)
-      if @_grammar[:text].length != source.length
-        raise SyntaxError.new source[@_grammar[:text].length, 50].inspect
+      if @_grammar.text.length != source.length
+        raise SyntaxError.new source[@_grammar.text.length, 50].inspect
       end
     end
 
     def parse(source)
       res = self.grammar[0].match(source)
-      if res[:text].length != source.length
-        raise SyntaxError.new source[res[:text].length, 50].inspect
+      if res.text.length != source.length
+        raise SyntaxError.new source[res.text.length, 50].inspect
       else
         res
       end
     end
 
     def _parse(node)
-      return node if node[:name] == nil
-      self.send('visit_' + node[:name], node,
-                node[:children] ? node[:children].map {|c| _parse(c)} : nil)
+      return node if node.name == nil
+      self.send('visit_' + node.name, node,
+                node.children ? node.children.map {|c| _parse(c)} : nil)
     end
 
     def grammar
@@ -187,7 +185,7 @@ module PEG
     end
 
     def visit_identifier__regex(node, children)
-      node[:text]
+      node.text
     end
 
     def visit_identifier(node, children)
@@ -196,7 +194,7 @@ module PEG
     end
 
     def visit_literal(node, children)
-      Literal.new(Kernel.eval(node[:text]))
+      Literal.new(Kernel.eval(node.text))
     end
 
     def visit_dot(node, children)
@@ -205,7 +203,7 @@ module PEG
 
     def visit_class(node, children)
       class_, spacing = children
-      Regex.new(class_[:text])
+      Regex.new(class_.text)
     end
 
     def visit_definition(node, children)
@@ -255,7 +253,7 @@ module PEG
     end
 
     def visit_prefix__optional(node, children)
-      node[:text].strip  # HACK
+      node.text.strip  # HACK
     end
 
     def visit_prefix(node, children)
@@ -268,7 +266,7 @@ module PEG
     end
 
     def visit_suffix__optional(node, children)
-      node[:text].strip  # HACK
+      node.text.strip  # HACK
     end
 
     def visit_suffix(node, children)
@@ -424,22 +422,22 @@ module PEG
       grammar_list = Grammar.new(grammar_source).grammar
       grammar = ReferenceResolver.new(grammar_list).resolve
       node = grammar.match(source)
-      if node[:text].length != source.length
-        raise SyntaxError.new source[node[:text].length, 50].inspect
+      if node.text.length != source.length
+        raise SyntaxError.new source[node.text.length, 50].inspect
       end
       _eval(node)
     end
 
     def _eval(node)
-      name = node[:name]
+      name = node.name
       if name
-        block = @@blocks.fetch(node[:name])
+        block = @@blocks.fetch(node.name)
       else
         block = lambda { |c, n| n }
       end
       children = []
-      if node[:children]
-        children = node[:children].map {|c| self._eval(c)}
+      if node.children
+        children = node.children.map {|c| self._eval(c)}
       end
       self.instance_exec(node, children, &block)
     end
