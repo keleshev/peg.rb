@@ -139,6 +139,11 @@ describe Grammar do
       [Node.new('ru'), Node.new('le')], 'rule')
   end
 
+  it 'can actually parse multiple rules' do
+    Grammar.new("rule <- 'ru' le \n le <- 'le'").parse('rule').should ==
+      Node.new('rule', [Node.new('ru'), Node.new('le', [], 'le')], 'rule')
+  end
+
   it 'raises SyntaxError on invalid syntax' do
     expect do
       Grammar.new("rule <- [a-z]*").parse('abc123')

@@ -263,11 +263,12 @@ module PEG
     end
 
     def parse(source)
-      res = self.grammar[0].match(source)
-      if res.text.length != source.length
-        raise SyntaxError.new source[res.text.length, 50].inspect
+      resolved_grammar = ReferenceResolver.new(grammar).resolve
+      node = resolved_grammar.match(source)
+      if node.text.length != source.length
+        raise SyntaxError.new source[node.text.length, 50].inspect
       else
-        res
+        node
       end
     end
 
