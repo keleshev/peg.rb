@@ -176,8 +176,12 @@ end
 require './json_example'
 
 
-describe JSON do
+describe JSONLanguage do
   it 'has numbers' do
     JSON.eval('42').should == 42
+  end
+
+  it 'has strings' do
+    JSON.eval('"ab"').should == 'ab'
   end
 end

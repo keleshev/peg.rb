@@ -1,4 +1,20 @@
 module PEG
+  class Node
+    attr_accessor :text, :name, :children
+
+    def initialize(text, name='', children=[])
+      @text, @name, @children = text, name, children
+    end
+
+    def ==(other)
+      self.inspect == other.inspect
+    end
+
+    def inspect
+      "#{self.class}.new(#{text.inspect}, #{name.inspect}, #{children.inspect})"
+    end
+  end
+
   class Rule
     attr_accessor :children
 
@@ -180,7 +196,7 @@ module PEG
     end
 
     def visit_literal(node, children)
-      Literal.new(eval(node[:text]))
+      Literal.new(Kernel.eval(node[:text]))
     end
 
     def visit_dot(node, children)
@@ -393,16 +409,39 @@ module PEG
   end
 
   class Language
+    # we rely on the fact that 1.9+ Hash maintains order
+    @@rules = {}
+    @@blocks = {}
+
     def self.rule(rule, &block)
-      @@rule = rule
-      @@block = block
+      name = rule.split('<-')[0].strip
+      @@rules[name] = rule
+      @@blocks[name] = block
     end
 
     def eval(source)
-      #p [@@rule, @@block]
-      node = Grammar.new(@@rule).parse(source)
-      children = 'hai'
-      self.instance_exec(node, children, &@@block)
+      grammar_source = @@rules.values.join("\n")
+      grammar_list = Grammar.new(grammar_source).grammar
+      grammar = ReferenceResolver.new(grammar_list).resolve
+      node = grammar.match(source)
+      if node[:text].length != source.length
+        raise SyntaxError.new source[node[:text].length, 50].inspect
+      end
+      _eval(node)
+    end
+
+    def _eval(node)
+      name = node[:name]
+      if name
+        block = @@blocks.fetch(node[:name])
+      else
+        block = lambda { |c, n| n }
+      end
+      children = []
+      if node[:children]
+        children = node[:children].map {|c| self._eval(c)}
+      end
+      self.instance_exec(node, children, &block)
     end
   end
 end
