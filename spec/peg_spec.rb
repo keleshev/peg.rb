@@ -167,18 +167,11 @@ describe ReferenceResolver do
     ReferenceResolver.new([rule1, rule2, rule3]).resolve.should ==
       Literal.new('a').name('rule3')
   end
-end
 
-
-require_relative '../examples/json_example'
-
-
-describe JSONLanguage do
-  it 'has numbers' do
-    JSON.eval('42').should == 42
-  end
-
-  it 'has strings' do
-    JSON.eval('"ab"').should == 'ab'
+  it 'resolves recursive references' do
+    value = Sequence.new(Literal.new('['),
+                         Optional.new(Reference.new('value')),
+                         Literal.new(']')).name('value')
+    ReferenceResolver.new([value]).resolve
   end
 end

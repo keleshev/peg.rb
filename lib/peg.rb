@@ -378,6 +378,7 @@ module PEG
   class ReferenceResolver
     def initialize(rules)
       @rules = rules
+      @walked = []
     end
 
     def resolve
@@ -386,16 +387,15 @@ module PEG
 
     def _resolve!(rule)
       if rule.class == Reference
-        resolved_rule = reference(rule.reference)
-        if resolved_rule.class == Reference
-          _resolve!(resolved_rule)
+        ref = reference(rule.reference)
+        if @walked.include? ref.name
+          ref
         else
-          resolved_rule
+          @walked << ref.name if ref.name
+          _resolve!(ref)
         end
-      elsif rule.children.length > 0
-        rule.children.map! {|child| _resolve!(child)}
-        rule
       else
+        rule.children.map! {|child| _resolve!(child)}
         rule
       end
     end
@@ -421,6 +421,12 @@ module PEG
       @@default = block
     end
 
+    def to_lambda(&block)
+      obj = Object.new
+      obj.define_singleton_method(:_, &block)
+      return obj.method(:_).to_proc
+    end
+
     def eval(source)
       grammar_source = @@rules.values.join("\n")
       node = Grammar.new(grammar_source).parse(source)
@@ -428,7 +434,7 @@ module PEG
     end
 
     def _eval(node)
-      block = @@blocks.fetch(node.name, @@default)
+      block = @@blocks[node.name] || @@default
       children = node.children.map {|child| _eval(child)}
       instance_exec(node, children, &block)
     end
