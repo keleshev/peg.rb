@@ -1,4 +1,4 @@
-require './peg'
+require_relative '../lib/peg'
 
 class JSONLanguage < PEG::Language
   rule 'main <- number / string' do |node, children|

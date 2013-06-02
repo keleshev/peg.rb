@@ -1,4 +1,4 @@
-require './peg'
+require_relative '../lib/peg'
 include PEG
 
 
@@ -170,7 +170,7 @@ describe ReferenceResolver do
 end
 
 
-require './json_example'
+require_relative '../examples/json_example'
 
 
 describe JSONLanguage do
