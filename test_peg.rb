@@ -121,10 +121,11 @@ describe Grammar do
   end
 
   it 'has grouping with (parenthesis)' do
-    Grammar.new("rule <- _ ('a' / 'b') _").grammar.should == [
+    Grammar.new("rule <- _ ('a' / 'b') _ \n _ <- ' '").grammar.should == [
       Sequence.new(Reference.new('_'),
                    Or.new(Literal.new('a'), Literal.new('b')),
-                   Reference.new('_')).name('rule')
+                   Reference.new('_')).name('rule'),
+      Literal.new(' ').name('_')
     ]
   end
 

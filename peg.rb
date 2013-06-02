@@ -1,7 +1,7 @@
 module PEG
   class ValueObject
     def ==(other)
-      self.inspect == other.inspect
+      inspect == other.inspect
     end
   end
 
@@ -33,12 +33,21 @@ module PEG
       end
     end
 
+    def parse(source)
+      node = match(source)
+      if node.text.length != source.length
+        raise SyntaxError.new source[node.text.length, 50].inspect
+      else
+        node
+      end
+    end
+
     def result(text, children=[])
       Node.new(text, children, @name)
     end
 
     def inspect
-      repr = "#{self.class}.new(#{self._inspect})"
+      repr = "#{self.class}.new(#{_inspect})"
       @name ? repr + ".name(#{@name.inspect})" : repr
     end
   end
@@ -158,93 +167,93 @@ module PEG
   class Visitor
     def self.visit(node)
       return node if node.name == nil
-      self.send('visit_' + node.name, node, node.children.map {|c| visit(c)})
+      send(node.name, node, node.children.map {|c| visit(c)})
     end
   end
 
   class GrammarGenerator < Visitor
-    def self.visit_identifier__regex(node, children)
+    def self.identifier__regex(node, children)
       node.text
     end
 
-    def self.visit_identifier(node, children)
+    def self.identifier(node, children)
       identifier_regex, spacing = children
       Reference.new(identifier_regex)
     end
 
-    def self.visit_literal(node, children)
+    def self.literal(node, children)
       Literal.new(Kernel.eval(node.text))
     end
 
-    def self.visit_dot(node, children)
+    def self.dot(node, children)
       Regex.new('.')
     end
 
-    def self.visit_class(node, children)
+    def self.class(node, children)
       class_, spacing = children
       Regex.new(class_.text)
     end
 
-    def self.visit_definition(node, children)
+    def self.definition(node, children)
       identifier, left_arrow, expression = children
       expression.name(identifier.reference)
     end
 
-    def self.visit_expression(node, children)
+    def self.expression(node, children)
       sequence, rest = children
       rest.length == 0 ? sequence : Or.new(sequence, *rest)
     end
 
-    def self.visit_expression__zeroormore(node, children)
+    def self.expression__zeroormore(node, children)
       children
     end
 
-    def self.visit_expression__sequence(node, children)
+    def self.expression__sequence(node, children)
       slash, sequence = children
       sequence
     end
 
-    def self.visit_grammar(node, children)
+    def self.grammar(node, children)
       spacing, definitions = children
       definitions
     end
 
-    def self.visit_grammar__oneormore(node, children)
+    def self.grammar__oneormore(node, children)
       children
     end
 
-    def self.visit_primary(node, children)
+    def self.primary(node, children)
       children[0]
     end
 
-    def self.visit_primary__sequence(node, children)
+    def self.primary__sequence(node, children)
       identifier, not_left_arrow = children
       identifier
     end
 
-    def self.visit_primary__parens(node, children)
+    def self.primary__parens(node, children)
       open, expression, close = children
       expression
     end
 
-    def self.visit_prefix__optional(node, children)
+    def self.prefix__optional(node, children)
       node.text.strip  # HACK
     end
 
-    def self.visit_prefix(node, children)
+    def self.prefix(node, children)
       prefix, suffix = children
       prefix == '' ? suffix : {'&' => And, '!' => Not}.fetch(prefix).new(suffix)
     end
 
-    def self.visit_sequence(node, children)
+    def self.sequence(node, children)
       children.length == 1 ? children[0] : Sequence.new(*children)
     end
 
-    def self.visit_suffix__optional(node, children)
+    def self.suffix__optional(node, children)
       node.text.strip  # HACK
     end
 
-    def self.visit_suffix(node, children)
+    def self.suffix(node, children)
       primary, optional_suffix = children
       optional_suffix == '' ? primary : {
         '?' => Optional,
@@ -254,29 +263,21 @@ module PEG
     end
   end
 
-  class Grammar
+  class Grammar < Sequence
     def initialize(source)
-      @_grammar = node = self.class._peg.match(source)
-      if @_grammar.text.length != source.length
-        raise SyntaxError.new source[@_grammar.text.length, 50].inspect
-      end
+      @_nodes = peg_grammar.parse(source)
+      @children = [ReferenceResolver.new(grammar).resolve]
     end
 
-    def parse(source)
-      resolved_grammar = ReferenceResolver.new(grammar).resolve
-      node = resolved_grammar.match(source)
-      if node.text.length != source.length
-        raise SyntaxError.new source[node.text.length, 50].inspect
-      else
-        node
-      end
+    def match(source)
+      @children[0].match(source)
     end
 
     def grammar
-      GrammarGenerator.visit(@_grammar)
+      GrammarGenerator.visit(@_nodes)
     end
 
-    def self._peg
+    def peg_grammar
       end_of_line = Or.new(
                       Literal.new("\r\n"),
                       Literal.new("\n"),
@@ -422,19 +423,14 @@ module PEG
 
     def eval(source)
       grammar_source = @@rules.values.join("\n")
-      grammar_list = Grammar.new(grammar_source).grammar
-      grammar = ReferenceResolver.new(grammar_list).resolve
-      node = grammar.match(source)
-      if node.text.length != source.length
-        raise SyntaxError.new source[node.text.length, 50].inspect
-      end
+      node = Grammar.new(grammar_source).parse(source)
       _eval(node)
     end
 
     def _eval(node)
-      block = node.name ? @@blocks.fetch(node.name) : @@default
-      children = node.children.map {|child| self._eval(child)}
-      self.instance_exec(node, children, &block)
+      block = @@blocks.fetch(node.name, @@default)
+      children = node.children.map {|child| _eval(child)}
+      instance_exec(node, children, &block)
     end
   end
 end
