@@ -17,7 +17,7 @@ class JSONLanguage < PEG::Language
     Hash[collection(node, children)]
   end
 
-  rule 'pair <- string ":" number' do |node, children| # number should be value
+  rule 'pair <- string ":" value' do |node, children|
     string, _, value = children
     [string, value]
   end

@@ -377,31 +377,26 @@ module PEG
 
   class ReferenceResolver
     def initialize(rules)
-      @rules = rules
-      @walked = []
+      rules = rules.map {|rule| [rule.name, rule]}
+      @rules = Hash[rules]
     end
 
     def resolve
-      _resolve!(@rules[0])
+      name, rule = @rules.first
+      _resolve(rule)
     end
 
-    def _resolve!(rule)
+    def _resolve(rule)
       if rule.class == Reference
-        ref = reference(rule.reference)
-        if @walked.include? ref.name
-          ref
-        else
-          @walked << ref.name if ref.name
-          _resolve!(ref)
-        end
+        rule = @rules[rule.reference]
+        _resolve(rule)
       else
-        rule.children.map! {|child| _resolve!(child)}
+        old_children = rule.children
+        rule.children = []  # avoid infinite reqursion of _resolve
+        new_children = old_children.map {|child| _resolve(child)}
+        rule.children = new_children
         rule
       end
-    end
-
-    def reference(name)
-      @rules.find {|r| r.name == name} || raise("rule `#{name}` not found")
     end
   end
 

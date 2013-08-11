@@ -174,4 +174,12 @@ describe ReferenceResolver do
                          Literal.new(']')).name('value')
     ReferenceResolver.new([value]).resolve
   end
+
+  it 'resolves multiple recursive references' do
+    value = Sequence.new(Literal.new('['),
+                         Optional.new(Reference.new('value')),
+                         Optional.new(Reference.new('value')),
+                         Literal.new(']')).name('value')
+    ReferenceResolver.new([value]).resolve
+  end
 end
