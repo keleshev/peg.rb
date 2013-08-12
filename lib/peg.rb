@@ -430,8 +430,14 @@ module PEG
 
     def _eval(node)
       block = @@blocks[node.name] || @@default
-      children = node.children.map {|child| _eval(child)}
-      instance_exec(node, children, &block)
+      if block.arity == 2
+        children = node.children.map {|child| _eval(child)}
+        instance_exec(node, children, &block)
+      elsif block.arity == 1
+        instance_exec(node, &block)
+      else
+        raise "`rule` expects a block with signature |node| or |node, children|"
+      end
     end
   end
 end

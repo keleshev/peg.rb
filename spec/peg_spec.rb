@@ -183,3 +183,13 @@ describe ReferenceResolver do
     ReferenceResolver.new([value]).resolve
   end
 end
+
+describe Language do
+  it 'does not evaluate children recursively if block arity is 1' do
+    class Foo < Language
+      rule('foo <- bar ""') { |node| 'ok' }  # TODO breaks with 'foo <- bar ""'
+      rule('bar <- "foo"')  { |node| raise('fail') }
+    end
+    Foo.new.eval('foo').should == 'ok'
+  end
+end
