@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name        = 'peg'
-  s.version     = '0.0.3'
+  s.version     = '0.0.4'
   s.summary     = 'PEG implementation'
   s.description = 'Parsing Expression Grammar implmentation'
   s.author      = 'Vladimir Keleshev'
