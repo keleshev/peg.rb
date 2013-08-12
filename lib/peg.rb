@@ -423,9 +423,11 @@ module PEG
     end
 
     def eval(source)
-      grammar_source = @@rules.values.join("\n")
-      node = Grammar.new(grammar_source).parse(source)
-      _eval(node)
+      if source.class == String
+        grammar_source = @@rules.values.join("\n")
+        source = Grammar.new(grammar_source).parse(source)
+      end
+      _eval(source)
     end
 
     def _eval(node)
