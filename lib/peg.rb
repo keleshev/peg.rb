@@ -1,11 +1,11 @@
 module PEG
-  class ValueObject
+  class AbstractValue
     def ==(other)
       inspect == other.inspect
     end
   end
 
-  class Node < ValueObject
+  class Node < AbstractValue
     attr_accessor :text, :children, :name
 
     def initialize(text, children=[], name=nil)
@@ -17,7 +17,7 @@ module PEG
     end
   end
 
-  class Rule < ValueObject
+  class AbstractRule < AbstractValue
     attr_accessor :children
 
     def initialize(*children)
@@ -42,7 +42,7 @@ module PEG
       end
     end
 
-    def result(text, children=[])
+    def new_node(text, children=[])
       Node.new(text, children, @name)
     end
 
@@ -52,14 +52,14 @@ module PEG
     end
   end
 
-  class Literal < Rule
+  class Literal < AbstractRule
     def initialize(literal)
       @literal = literal
       @children = []
     end
 
     def match(text)
-      text.start_with?(@literal) ? result(@literal) : nil
+      text.start_with?(@literal) ? new_node(@literal) : nil
     end
 
     def _inspect
@@ -70,26 +70,23 @@ module PEG
   class Regex < Literal
     def match(text)
       res = Regexp.new('\A' + @literal).match(text)
-      res && result(res.to_s)
+      res && new_node(res.to_s)
     end
   end
 
-  class Sequence < Rule
+  class Sequence < AbstractRule
     def match(text)
       text_ = String.new(text)
       len = 0
       children = []
       @children.each do |child|
         node = child.match(text_)
-        if node == nil
-          return nil
-        else
-          children << node
-          text_ = text_.slice node.text.length..text_.length
-          len += node.text.length
-        end
+        return nil unless node
+        children << node
+        text_ = text_.slice node.text.length..text_.length
+        len += node.text.length
       end
-      result(text.slice(0...len), children)
+      new_node(text.slice(0...len), children)
     end
 
     def _inspect
@@ -101,7 +98,7 @@ module PEG
     def match(text)
       @children.each do |child|
         node = child.match(text)
-        return result(node.text, [node]) if node
+        return new_node(node.text, [node]) if node
       end
       nil
     end
@@ -109,13 +106,13 @@ module PEG
 
   class Not < Sequence
     def match(text)
-      @children[0].match(text) ? nil : result('')
+      @children[0].match(text) ? nil : new_node('')
     end
   end
 
   class And < Sequence
     def match(text)
-      @children[0].match(text) ? result('') : nil
+      @children[0].match(text) ? new_node('') : nil
     end
   end
 
@@ -139,7 +136,7 @@ module PEG
         len += node.text.length
       end
       in_range = self.class.range.include?(children.length)
-      in_range ? result(text.slice(0...len), children) : nil
+      in_range ? new_node(text.slice(0...len), children) : nil
     end
   end
 
@@ -151,7 +148,7 @@ module PEG
     @range = (0..1)
   end
 
-  class Reference < Rule
+  class Reference < AbstractRule
     attr_reader :reference
 
     def initialize(name)
@@ -164,14 +161,14 @@ module PEG
     end
   end
 
-  class Visitor
+  class AbstractVisitor
     def self.visit(node)
       return node if node.name == nil
-      send(node.name, node, node.children.map {|c| visit(c)})
+      send(node.name, node, node.children.map {|child| visit(child)})
     end
   end
 
-  class GrammarGenerator < Visitor
+  class GrammarGenerator < AbstractVisitor
     def self.identifier__regex(node, children)
       node.text
     end
@@ -401,7 +398,6 @@ module PEG
   end
 
   class Language
-    @@default = proc {|node, children| children}
     # we rely on the fact that 1.9+ Hash maintains order
     @@rules = {}
     @@blocks = {}
@@ -412,26 +408,17 @@ module PEG
       @@blocks[name] = block
     end
 
-    def self.default(&block)
-      @@default = block
-    end
-
-    def to_lambda(&block)
-      obj = Object.new
-      obj.define_singleton_method(:_, &block)
-      return obj.method(:_).to_proc
+    def grammar
+      @grammar ||= Grammar.new(@@rules.values.join("\n"))
     end
 
     def eval(source)
-      if source.class == String
-        grammar_source = @@rules.values.join("\n")
-        source = Grammar.new(grammar_source).parse(source)
-      end
+      source = grammar.parse(source) if source.class == String
       _eval(source)
     end
 
     def _eval(node)
-      block = @@blocks[node.name] || @@default
+      block = @@blocks[node.name] || proc {|node, children| children}
       if block.arity == 2
         children = node.children.map {|child| _eval(child)}
         instance_exec(node, children, &block)
