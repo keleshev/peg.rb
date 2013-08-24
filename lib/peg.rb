@@ -398,18 +398,22 @@ module PEG
   end
 
   class Language
-    # we rely on the fact that 1.9+ Hash maintains order
-    @@rules = {}
-    @@blocks = {}
+
+    class << self
+      attr_accessor :rules, :blocks
+    end
 
     def self.rule(rule, &block)
+      @rules = {} if not @rules
+      @blocks = {} if not @blocks
       name = rule.split('<-')[0].strip
-      @@rules[name] = rule
-      @@blocks[name] = block
+      @rules[name] = rule
+      @blocks[name] = block
     end
 
     def grammar
-      @grammar ||= Grammar.new(@@rules.values.join("\n"))
+      # we rely on the fact that 1.9+ Hash maintains order
+      @grammar ||= Grammar.new(self.class.rules.values.join("\n"))
     end
 
     def eval(source)
@@ -418,7 +422,7 @@ module PEG
     end
 
     def _eval(node)
-      block = @@blocks[node.name] || proc {|node, children| children}
+      block = self.class.blocks[node.name] || proc {|node, children| children}
       if block.arity == 2
         children = node.children.map {|child| _eval(child)}
         instance_exec(node, children, &block)
