@@ -148,23 +148,8 @@ module PEG
     @range = (0..1)
   end
 
-  class Reference < AbstractRule
-    attr_reader :reference
-
-    def initialize(name)
-      @reference = name
-      @children = []
-    end
-
-    def _inspect
-      @reference.inspect
-    end
-  end
-
   class Grammar < Sequence
     def initialize(source)
-      #source = PEG::peg_grammar.parse(source) if source.class == String
-      #@_nodes = source
       @source = source
       @children = [ReferenceResolver.new(grammar).resolve]
     end
@@ -191,10 +176,8 @@ module PEG
     end
 
     def _resolve(rule)
-      if rule.class == Reference
-        _resolve(@rules.fetch(rule.reference))
-      elsif rule.class == Symbol
-        _resolve(@rules.fetch(rule.to_s))
+      if rule.class == Symbol
+        _resolve(@rules.fetch(rule))
       else
         old_children = rule.children
         rule.children = []  # avoid infinite reqursion of _resolve
@@ -250,24 +233,24 @@ module PEG
     end
 
     # grammar <- spacing definition+
-    _ = Sequence.new(:spacing, OneOrMore.new(:definition)).name('grammar')
+    _ = Sequence.new(:spacing, OneOrMore.new(:definition)).name(:grammar)
     rule _ do |node, children|
       spacing, definitions = children
       definitions
     end
 
     # definition <- identifier left_arrow expression
-    _ = Sequence.new(:identifier, :left_arrow, :expression).name('definition')
+    _ = Sequence.new(:identifier, :left_arrow, :expression).name(:definition)
     rule _ do |node, children|
       identifier, left_arrow, expression = children
-      expression.name(identifier.reference)
+      expression.name(identifier)
     end
 
     # expression <- sequence (slash sequence)*
     _ = Sequence.new(
       :sequence,
       ZeroOrMore.new(Sequence.new(:slash, :sequence))
-    ).name('expression')
+    ).name(:expression)
     rule _ do |node, children|
       sequence, rest = children
       rest = rest.map { |slash, sequence| sequence }
@@ -275,13 +258,13 @@ module PEG
     end
 
     # sequence <- prefix*
-    _ = ZeroOrMore.new(:prefix).name('sequence')
+    _ = ZeroOrMore.new(:prefix).name(:sequence)
     rule _ do |node, children|
       children.length == 1 ? children[0] : Sequence.new(*children)
     end
 
     # prefix <- (and / not)? suffix
-    _ = Sequence.new(Optional.new(Or.new(:and, :not)), :suffix).name('prefix')
+    _ = Sequence.new(Optional.new(Or.new(:and, :not)), :suffix).name(:prefix)
     rule _ do |node, children|
       suffix = children[1]
       prefix = node.children[0].text.strip  # HACK
@@ -292,7 +275,7 @@ module PEG
     _ = Sequence.new(
       :primary,
       Optional.new(Or.new(:question, :star, :plus))
-    ).name('suffix')
+    ).name(:suffix)
     rule _ do |node, children|
       primary = children[0]
       suffix = node.children[1].text.strip  # HACK
@@ -306,14 +289,14 @@ module PEG
 
     # primary__sequence <- identifier !left_arrow
     _ = Sequence.new(:identifier,
-                     Not.new(:left_arrow)).name('primary__sequence')
+                     Not.new(:left_arrow)).name(:primary__sequence)
     rule _ do |node, children|
       identifier, not_left_arrow = children
       identifier
     end
 
     # primary__parens <- open expression close
-    _ = Sequence.new(:open, :expression, :close).name('primary__parens')
+    _ = Sequence.new(:open, :expression, :close).name(:primary__parens)
     rule _ do |node, children|
       open, expression, close = children
       expression
@@ -324,20 +307,20 @@ module PEG
                :primary__parens,
                :literal,
                :class,
-               :dot).name('primary')
+               :dot).name(:primary)
     rule _ do |node, children|
       children[0]
     end
 
     # identifier = [A-Za-z0-9_]+ spacing  # HACK simplified
-    _ = Sequence.new(Regex.new('[A-Za-z0-9_]+'), :spacing).name('identifier')
+    _ = Sequence.new(Regex.new('[A-Za-z0-9_]+'), :spacing).name(:identifier)
     rule _ do |node, children|
       identifier_regex = node.children[0].text
-      Reference.new(identifier_regex)
+      identifier_regex.to_sym
     end
 
     # class <- '[' ... ']' spacing  # HACK simplified
-    _ = Sequence.new(Regex.new('\[.*?\]'), :spacing).name('class')
+    _ = Sequence.new(Regex.new('\[.*?\]'), :spacing).name(:class)
     rule _ do |node, children|
       class_, spacing = children
       #Regex.new(class_.text)  # TODO why won't this work?
@@ -346,20 +329,21 @@ module PEG
 
     # literal <- (['] ... ['] / ["] ... ["]) spacing  # HACK simplified
     _ = Sequence.new(Or.new(Regex.new("'.*?'"), Regex.new('".*?"')),
-                     :spacing).name('literal')
+                     :spacing).name(:literal)
     rule _ do |node, children|
       Literal.new(Kernel.eval(node.text))
     end
 
     # dot <- '.' spacing
-    _ = Sequence.new(lit('.'), :spacing).name('dot')
+    _ = Sequence.new(lit('.'), :spacing).name(:dot)
     rule(_) { |node, children| Regex.new('.') }
 
     node = proc { |node, children| node }
     def self.token(source)
       match = /(\S+) *<- "(\S+)" spacing/.match(source)
       block = proc { |node, children| node }
-      rule Sequence.new(Literal.new(match[2]), :spacing).name(match[1]), &block
+      rule Sequence.new(Literal.new(match[2]),
+                        :spacing).name(match[1].to_sym), &block
     end
 
     token 'and        <- "&" spacing'
@@ -373,7 +357,7 @@ module PEG
     token 'close      <- ")" spacing'
 
     # spacing <- (space / comment)*
-    _ = ZeroOrMore.new(Or.new(:space, :comment)).name('spacing')
+    _ = ZeroOrMore.new(Or.new(:space, :comment)).name(:spacing)
     rule _, &node
 
     # comment <- '#' (!end_of_line .)* end_of_line
@@ -382,13 +366,13 @@ module PEG
       ZeroOrMore.new(
         Sequence.new(Not.new(:end_of_line), Regex.new('.'))
       ),
-      :end_of_line).name('comment')
+      :end_of_line).name(:comment)
     rule _, &node
 
     # space <- " " / "\t" / end_of_line
-    rule Or.new(lit(" "), lit("\t"), :end_of_line).name('space'), &node
+    rule Or.new(lit(" "), lit("\t"), :end_of_line).name(:space), &node
 
     # end_of_line <- "\r\n" / "\n" / "\r"
-    rule Or.new(lit("\r\n"), lit("\n"), lit("\r")).name('end_of_line'), &node
+    rule Or.new(lit("\r\n"), lit("\n"), lit("\r")).name(:end_of_line), &node
   end
 end
