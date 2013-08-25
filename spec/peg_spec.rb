@@ -60,7 +60,7 @@ describe 'peg' do
   end
 
   it 'named' do
-    grammar = Literal.new('->').name(:arrow)
+    grammar = Rule.new(:arrow, Literal.new('->'))
     grammar.name.should == :arrow
     grammar.match('->').should == Node.new('->', [], :arrow)
   end
@@ -68,64 +68,63 @@ end
 
 describe Grammar do
   it 'literal' do
-    Grammar.new("rule<-'a'").grammar.should == [Literal.new('a').name(:rule)]
-    Grammar.new("rule<-'b'/'c'").grammar.should == [Or.new(
-      Literal.new('b'), Literal.new('c')).name(:rule)]
+    Grammar.new("rule<-'a'").grammar.should ==
+      [Rule.new(:rule, Literal.new('a'))]
+    Grammar.new("rule<-'b'/'c'").grammar.should ==
+      [Rule.new(:rule, Or.new(Literal.new('b'), Literal.new('c')))]
     Grammar.new("rule_1<-'a'/rule_2\nrule_2<-'b'").grammar.should == [
-      Or.new(Literal.new('a'), :rule_2).name(:rule_1),
-      Literal.new('b').name(:rule_2),
+      Rule.new(:rule_1, Or.new(Literal.new('a'), :rule_2)),
+      Rule.new(:rule_2, Literal.new('b')),
     ]
   end
 
   it 'has prefixes & and !' do
     Grammar.new("rule1<-'a'/&'b' rule2<-'c'/!'d'").grammar.should == [
-      Or.new(Literal.new('a'), And.new(Literal.new('b'))).name(:rule1),
-      Or.new(Literal.new('c'), Not.new(Literal.new('d'))).name(:rule2),
+      Rule.new(:rule1, Or.new(Literal.new('a'), And.new(Literal.new('b')))),
+      Rule.new(:rule2, Or.new(Literal.new('c'), Not.new(Literal.new('d')))),
     ]
   end
 
   it 'has comments' do
     Grammar.new("rule_1<-'a'/rule_2#comment\nrule_2<-'b'").grammar.should == [
-      Or.new(Literal.new('a'), :rule_2).name(:rule_1),
-      Literal.new('b').name(:rule_2),
+      Rule.new(:rule_1, Or.new(Literal.new('a'), :rule_2)),
+      Rule.new(:rule_2, Literal.new('b')),
     ]
   end
 
   it 'has sequences' do
     Grammar.new("rule <- 'a' !'b' rule2 rule2 <- 'hai'").grammar.should == [
-      Sequence.new(Literal.new('a'),
-                   Not.new(Literal.new('b')),
-                   :rule2).name(:rule),
-      Literal.new('hai').name(:rule2),
+      Rule.new(:rule, Sequence.new(Literal.new('a'),
+                                   Not.new(Literal.new('b')), :rule2)),
+      Rule.new(:rule2, Literal.new('hai')),
     ]
   end
 
   it 'has suffixes ?, * and +' do
     Grammar.new("rule <-'a'? 'b'* 'c'+").grammar.should == [
-      Sequence.new(Optional.new(Literal.new('a')),
-                   ZeroOrMore.new(Literal.new('b')),
-                   OneOrMore.new(Literal.new('c'))).name(:rule)
+      Rule.new(:rule, Sequence.new(Optional.new(Literal.new('a')),
+                                   ZeroOrMore.new(Literal.new('b')),
+                                   OneOrMore.new(Literal.new('c')))),
     ]
   end
 
   it 'has `.` that matches all' do
     Grammar.new('rule <- "a" !.').grammar.should == [
-      Sequence.new(Literal.new('a'), Not.new(Regex.new('.'))).name(:rule)
+      Rule.new(:rule, Sequence.new(Literal.new('a'), Not.new(Regex.new('.')))),
     ]
   end
 
   it 'has character classes like [a-z]' do
     Grammar.new("rule <- [a-z] / [']").grammar.should == [
-      Or.new(Regex.new('[a-z]'), Regex.new("[']")).name(:rule)
+      Rule.new(:rule, Or.new(Regex.new('[a-z]'), Regex.new("[']"))),
     ]
   end
 
   it 'has grouping with (parenthesis)' do
     Grammar.new("rule <- _ ('a' / 'b') _ \n _ <- ' '").grammar.should == [
-      Sequence.new(:_,
-                   Or.new(Literal.new('a'), Literal.new('b')),
-                   :_).name(:rule),
-      Literal.new(' ').name(:_)
+      Rule.new(:rule, Sequence.new(:_, Or.new(Literal.new('a'),
+                                              Literal.new('b')), :_)),
+      Rule.new(:_, Literal.new(' ')),
     ]
   end
 
@@ -154,35 +153,33 @@ end
 
 describe ReferenceResolver do
   it 'resolves references' do
-    rule1 = Or.new(:rule2, Literal.new('a')).name(:rule1)
-    rule2 = Literal.new('b').name(:rule2)
+    rule1 = Rule.new(:rule1, Or.new(:rule2, Literal.new('a')))
+    rule2 = Rule.new(:rule2, Literal.new('b'))
     ReferenceResolver.new([rule1, rule2]).resolve.should ==
-      Or.new(Literal.new('b').name(:rule2), Literal.new('a')).name(:rule1)
+      Rule.new(:rule1,
+               Or.new(Rule.new(:rule2, Literal.new('b')), Literal.new('a')))
   end
 
   it 'resolves references to references' do
-    rule1 = Sequence.new(:rule2).name(:rule1)
-    rule2 = Sequence.new(:rule3).name(:rule2)
-    rule3 = Literal.new('a').name(:rule3)
+    rule1 = Rule.new(:rule1, :rule2)
+    rule2 = Rule.new(:rule2, :rule3)
+    rule3 = Rule.new(:rule3, Literal.new('a'))
     ReferenceResolver.new([rule1, rule2, rule3]).resolve.should ==
-      Sequence.new(Sequence.new(
-        Literal.new('a').name(:rule3)).name(:rule2)).name(:rule1)
-    # HACK this should acutally resolver to Literal.new('a').name(:rule3)
-    # but sequences were added because symbols don't have .name method
+      Rule.new(:rule1, Rule.new(:rule2, Rule.new(:rule3, Literal.new('a'))))
   end
 
   it 'resolves recursive references' do
-    value = Sequence.new(Literal.new('['),
-                         Optional.new(:value),
-                         Literal.new(']')).name(:value)
+    value = Rule.new(:value, Sequence.new(Literal.new('['),
+                                          Optional.new(:value),
+                                          Literal.new(']')))
     ReferenceResolver.new([value]).resolve
   end
 
   it 'resolves multiple recursive references' do
-    value = Sequence.new(Literal.new('['),
-                         Optional.new(:value),
-                         Optional.new(:value),
-                         Literal.new(']')).name(:value)
+    value = Rule.new(:value, Sequence.new(Literal.new('['),
+                                          Optional.new(:value),
+                                          Optional.new(:value),
+                                          Literal.new(']')))
     ReferenceResolver.new([value]).resolve
   end
 end
@@ -198,9 +195,8 @@ describe Language do
 
   it 'allows expressions as rules' do
     class Foo < Language
-      rule(Sequence.new(:bar,
-                        Literal.new('')).name(:foo)) { |node, children| 'ok' }
-      foo = Literal.new('foo').name(:bar)
+      rule(Rule.new(:foo, Sequence.new(:bar, Literal.new('')))) { |_, _| 'ok' }
+      foo = Rule.new(:bar, Literal.new('foo'))
       rule(foo) { |node, children| 'ok' }
     end
     Foo.new.eval('foo').should == 'ok'

@@ -3,6 +3,10 @@ module PEG
     def ==(other)
       inspect == other.inspect
     end
+
+    def inspect
+      "#{self.class}.new(#{_inspect})"
+    end
   end
 
   class Node < AbstractValue
@@ -12,8 +16,8 @@ module PEG
       @text, @children, @name = text, children, name
     end
 
-    def inspect
-      "#{self.class}.new(#{text.inspect}, #{children.inspect}, #{name.inspect})"
+    def _inspect
+      "#{text.inspect}, #{children.inspect}, #{name.inspect}"
     end
   end
 
@@ -24,15 +28,6 @@ module PEG
       @children = children
     end
 
-    def name(value=nil)
-      if value
-        @name = value
-        self
-      else
-        @name
-      end
-    end
-
     def parse(source)
       node = match(source)
       if node.text.length != source.length
@@ -41,14 +36,24 @@ module PEG
         node
       end
     end
+  end
 
-    def new_node(text, children=[])
-      Node.new(text, children, @name)
+  class Rule < AbstractRule
+    attr_accessor :name
+
+    def initialize(literal, child)
+      @name = literal
+      @children = [child]
     end
 
-    def inspect
-      repr = "#{self.class}.new(#{_inspect})"
-      @name ? repr + ".name(#{@name.inspect})" : repr
+    def match(text)
+      node = @children[0].match(text)
+      node.name = @name if node
+      node
+    end
+
+    def _inspect
+      [@name.inspect, @children[0].inspect].join(', ')
     end
   end
 
@@ -59,7 +64,7 @@ module PEG
     end
 
     def match(text)
-      text.start_with?(@literal) ? new_node(@literal) : nil
+      text.start_with?(@literal) ? Node.new(@literal) : nil
     end
 
     def _inspect
@@ -70,7 +75,7 @@ module PEG
   class Regex < Literal
     def match(text)
       res = Regexp.new('\A' + @literal).match(text)
-      res && new_node(res.to_s)
+      res && Node.new(res.to_s)
     end
   end
 
@@ -86,7 +91,7 @@ module PEG
         text_ = text_.slice node.text.length..text_.length
         len += node.text.length
       end
-      new_node(text.slice(0...len), children)
+      Node.new(text.slice(0...len), children)
     end
 
     def _inspect
@@ -98,7 +103,7 @@ module PEG
     def match(text)
       @children.each do |child|
         node = child.match(text)
-        return new_node(node.text, [node]) if node
+        return Node.new(node.text, [node]) if node
       end
       nil
     end
@@ -106,13 +111,13 @@ module PEG
 
   class Not < Sequence
     def match(text)
-      @children[0].match(text) ? nil : new_node('')
+      @children[0].match(text) ? nil : Node.new('')
     end
   end
 
   class And < Sequence
     def match(text)
-      @children[0].match(text) ? new_node('') : nil
+      @children[0].match(text) ? Node.new('') : nil
     end
   end
 
@@ -136,7 +141,7 @@ module PEG
         len += node.text.length
       end
       in_range = self.class.range.include?(children.length)
-      in_range ? new_node(text.slice(0...len), children) : nil
+      in_range ? Node.new(text.slice(0...len), children) : nil
     end
   end
 
@@ -224,24 +229,24 @@ module PEG
 
   class PEGLanguage < PEG::Language
     # grammar <- spacing definition+
-    _ = Sequence.new(:spacing, OneOrMore.new(:definition)).name(:grammar)
+    _ = Rule.new(:grammar, Sequence.new(:spacing, OneOrMore.new(:definition)))
     rule _ do |node, children|
       spacing, definitions = children
       definitions
     end
 
     # definition <- identifier left_arrow expression
-    _ = Sequence.new(:identifier, :left_arrow, :expression).name(:definition)
+    _ = Rule.new(:definition,
+                 Sequence.new(:identifier, :left_arrow, :expression))
     rule _ do |node, children|
       identifier, left_arrow, expression = children
-      expression.name(identifier)
+      Rule.new(identifier, expression)
     end
 
     # expression <- sequence (slash sequence)*
-    _ = Sequence.new(
-      :sequence,
-      ZeroOrMore.new(Sequence.new(:slash, :sequence))
-    ).name(:expression)
+    _ = Rule.new(:expression,
+                 Sequence.new(:sequence,
+                              ZeroOrMore.new(Sequence.new(:slash, :sequence))))
     rule _ do |node, children|
       sequence, rest = children
       rest = rest.map { |slash, sequence| sequence }
@@ -249,12 +254,13 @@ module PEG
     end
 
     # sequence <- prefix*
-    rule ZeroOrMore.new(:prefix).name(:sequence) do |node, children|
+    rule Rule.new(:sequence, ZeroOrMore.new(:prefix)) do |node, children|
       children.length == 1 ? children[0] : Sequence.new(*children)
     end
 
     # prefix <- (and / not)? suffix
-    _ = Sequence.new(Optional.new(Or.new(:and, :not)), :suffix).name(:prefix)
+    _ = Rule.new(:prefix,
+                 Sequence.new(Optional.new(Or.new(:and, :not)), :suffix))
     rule _ do |node, children|
       suffix = children[1]
       prefix = node.children[0].text.strip  # HACK
@@ -262,10 +268,8 @@ module PEG
     end
 
     # suffix <- primary (question / star / plus)?
-    _ = Sequence.new(
-      :primary,
-      Optional.new(Or.new(:question, :star, :plus))
-    ).name(:suffix)
+    _ = Rule.new(:suffix,
+         Sequence.new(:primary, Optional.new(Or.new(:question, :star, :plus))))
     rule _ do |node, children|
       primary = children[0]
       suffix = node.children[1].text.strip  # HACK
@@ -277,59 +281,57 @@ module PEG
     end
 
     # _identifier_value <- identifier !left_arrow
-    _ = Sequence.new(:identifier,
-                     Not.new(:left_arrow)).name(:_identifier_value)
+    _ = Rule.new(:_identifier_value,
+         Sequence.new(:identifier, Not.new(:left_arrow)))
     rule _ do |node, children|
       identifier, not_left_arrow = children
       identifier
     end
 
     # _parenthesised <- open expression close
-    _ = Sequence.new(:open, :expression, :close).name(:_parenthesised)
+    _ = Rule.new(:_parenthesised, Sequence.new(:open, :expression, :close))
     rule _ do |node, children|
       open, expression, close = children
       expression
     end
 
     # primary <- _identifier_value / _parenthesised / literal / class / dot
-    _ = Or.new(:_identifier_value,
-               :_parenthesised,
-               :literal,
-               :class,
-               :dot).name(:primary)
+    _ = Rule.new(:primary, Or.new(:_identifier_value, :_parenthesised,
+                                  :literal, :class, :dot))
     rule _ do |node, children|
       children[0]
     end
 
     # identifier = [A-Za-z0-9_]+ spacing  # HACK simplified
-    _ = Sequence.new(Regex.new('[A-Za-z0-9_]+'), :spacing).name(:identifier)
+    _ = Rule.new(:identifier,
+                 Sequence.new(Regex.new('[A-Za-z0-9_]+'), :spacing))
     rule _ do |node, children|
       identifier_regex = node.children[0].text
       identifier_regex.to_sym
     end
 
     # class <- '[' ... ']' spacing  # HACK simplified
-    _ = Sequence.new(Regex.new('\[.*?\]'), :spacing).name(:class)
+    _ = Rule.new(:class, Sequence.new(Regex.new('\[.*?\]'), :spacing))
     rule _ do |node, children|
-      class_, spacing = children
       Regex.new(node.text.strip)
     end
 
     # literal <- (['] ... ['] / ["] ... ["]) spacing  # HACK simplified
-    _ = Sequence.new(Or.new(Regex.new("'.*?'"), Regex.new('".*?"')),
-                     :spacing).name(:literal)
+    _ = Rule.new(:literal, Sequence.new(Or.new(Regex.new("'.*?'"),
+                                               Regex.new('".*?"')), :spacing))
     rule _ do |node, children|
       Literal.new(Kernel.eval(node.text))
     end
 
     # dot <- '.' spacing
-    _ = Sequence.new(Literal.new('.'), :spacing).name(:dot)
+    _ = Rule.new(:dot, Sequence.new(Literal.new('.'), :spacing))
     rule(_) { |node, children| Regex.new('.') }
 
     def self.token(source)
       match = /(\S+) *<- "(\S+)" spacing/.match(source)
-      rule(Sequence.new(Literal.new(match[2]),
-                        :spacing).name(match[1].to_sym)) { |node, _| node }
+      rule(Rule.new(match[1].to_sym,
+                    Sequence.new(Literal.new(match[2]),
+                                 :spacing))) { |node, _| node }
     end
     node = proc { |node, children| node }
 
@@ -344,22 +346,23 @@ module PEG
     token 'close      <- ")" spacing'
 
     # spacing <- (space / comment)*
-    rule ZeroOrMore.new(Or.new(:space, :comment)).name(:spacing), &node
+    rule Rule.new(:spacing, ZeroOrMore.new(Or.new(:space, :comment))), &node
 
     # comment <- '#' (!end_of_line .)* end_of_line
-    rule Sequence.new(
-      Literal.new('#'),
-      ZeroOrMore.new(Sequence.new(Not.new(:end_of_line), Regex.new('.'))),
-      :end_of_line).name(:comment), &node
+    rule Rule.new(:comment,
+          Sequence.new(Literal.new('#'),
+                       ZeroOrMore.new(Sequence.new(Not.new(:end_of_line),
+                                                   Regex.new('.'))))), &node
 
     # space <- " " / "\t" / end_of_line
-    rule Or.new(Literal.new(" "),
-                Literal.new("\t"),
-                :end_of_line).name(:space), &node
+    rule Rule.new(:space, Or.new(Literal.new(" "),
+                                 Literal.new("\t"),
+                                 :end_of_line)), &node
 
     # end_of_line <- "\r\n" / "\n" / "\r"
-    rule Or.new(Literal.new("\r\n"),
-                Literal.new("\n"),
-                Literal.new("\r")).name(:end_of_line), &node
+    rule Rule.new(:end_of_line,
+                  Or.new(Literal.new("\r\n"),
+                         Literal.new("\n"),
+                         Literal.new("\r"))), &node
   end
 end
