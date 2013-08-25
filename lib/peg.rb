@@ -197,16 +197,15 @@ module PEG
     end
 
     def self.rule(rule, &block)
-      @rules = {} if not @rules
+      @rules = [] if not @rules
       @blocks = {} if not @blocks
       rule = PEGLanguage.new.eval(rule)[0] if rule.class == String
-      @rules[rule.name] = rule
+      @rules << rule
       @blocks[rule.name] = block
     end
 
     def grammar
-      # we rely on the fact that 1.9+ Hash maintains order
-      @grammar ||= Grammar.new(self.class.rules.values)
+      @grammar ||= Grammar.new(self.class.rules)
     end
 
     def eval(source)
