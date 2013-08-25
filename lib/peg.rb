@@ -161,109 +161,11 @@ module PEG
     end
   end
 
-  class AbstractVisitor
-    def self.visit(node)
-      return node if node.name == nil
-      send(node.name, node, node.children.map {|child| visit(child)})
-    end
-  end
-
-  class GrammarGenerator < AbstractVisitor
-    def self.identifier__regex(node, children)
-      node.text
-    end
-
-    def self.identifier(node, children)
-      identifier_regex, spacing = children
-      Reference.new(identifier_regex)
-    end
-
-    def self.literal(node, children)
-      Literal.new(Kernel.eval(node.text))
-    end
-
-    def self.dot(node, children)
-      Regex.new('.')
-    end
-
-    def self.class(node, children)
-      class_, spacing = children
-      Regex.new(class_.text)
-    end
-
-    def self.definition(node, children)
-      identifier, left_arrow, expression = children
-      expression.name(identifier.reference)
-    end
-
-    def self.expression(node, children)
-      sequence, rest = children
-      rest.length == 0 ? sequence : Or.new(sequence, *rest)
-    end
-
-    def self.expression__zeroormore(node, children)
-      children
-    end
-
-    def self.expression__sequence(node, children)
-      slash, sequence = children
-      sequence
-    end
-
-    def self.grammar(node, children)
-      spacing, definitions = children
-      definitions
-    end
-
-    def self.grammar__oneormore(node, children)
-      children
-    end
-
-    def self.primary(node, children)
-      children[0]
-    end
-
-    def self.primary__sequence(node, children)
-      identifier, not_left_arrow = children
-      identifier
-    end
-
-    def self.primary__parens(node, children)
-      open, expression, close = children
-      expression
-    end
-
-    def self.prefix__optional(node, children)
-      node.text.strip  # HACK
-    end
-
-    def self.prefix(node, children)
-      prefix, suffix = children
-      prefix == '' ? suffix : {'&' => And, '!' => Not}.fetch(prefix).new(suffix)
-    end
-
-    def self.sequence(node, children)
-      children.length == 1 ? children[0] : Sequence.new(*children)
-    end
-
-    def self.suffix__optional(node, children)
-      node.text.strip  # HACK
-    end
-
-    def self.suffix(node, children)
-      primary, optional_suffix = children
-      optional_suffix == '' ? primary : {
-        '?' => Optional,
-        '*' => ZeroOrMore,
-        '+' => OneOrMore,
-      }.fetch(optional_suffix).new(primary)
-    end
-  end
-
   class Grammar < Sequence
     def initialize(source)
-      source = self.class.peg_grammar.parse(source) if source.class == String
-      @_nodes = source
+      #source = PEG::peg_grammar.parse(source) if source.class == String
+      #@_nodes = source
+      @source = source
       @children = [ReferenceResolver.new(grammar).resolve]
     end
 
@@ -272,109 +174,13 @@ module PEG
     end
 
     def grammar
-      @_nodes.class == Array ? @_nodes : GrammarGenerator.visit(@_nodes)
-    end
-
-    def self.peg_grammar
-      end_of_line = Or.new(
-                      Literal.new("\r\n"),
-                      Literal.new("\n"),
-                      Literal.new("\r"),
-                    )
-      space = Or.new(Literal.new(" "), Literal.new("\t"), end_of_line)
-      comment = Sequence.new(
-                  Literal.new('#'),
-                  ZeroOrMore.new(
-                    Sequence.new(Not.new(end_of_line), Regex.new('.')),
-                  ),
-                  end_of_line,
-                )
-      spacing = ZeroOrMore.new(Or.new(space, comment))
-
-      and_ = Sequence.new(Literal.new('&'), spacing)
-      not_ = Sequence.new(Literal.new('!'), spacing)
-      slash = Sequence.new(Literal.new('/'), spacing)
-      left_arrow = Sequence.new(Literal.new('<-'), spacing)
-      question = Sequence.new(Literal.new('?'), spacing)
-      star = Sequence.new(Literal.new('*'), spacing)
-      plus = Sequence.new(Literal.new('+'), spacing)
-      open = Sequence.new(Literal.new('('), spacing)
-      close = Sequence.new(Literal.new(')'), spacing)
-      dot = Sequence.new(Literal.new('.'), spacing).name('dot')
-
-      # HACK these three rules are simplified
-      literal = Sequence.new(
-                  Or.new(Regex.new("'.*?'"), Regex.new('".*?"')),
-                  spacing
-                ).name('literal')
-      class_ = Sequence.new(Regex.new('\[.*?\]'), spacing).name('class')
-      identifier = Sequence.new(
-                     Regex.new('[A-Za-z0-9_]+').name('identifier__regex'),
-                     spacing
-                   ).name('identifier')
-
-      primary = Or.new(
-                  Sequence.new(
-                    identifier,
-                    Not.new(left_arrow)
-                  ).name('primary__sequence'),
-                  Sequence.new(
-                    open,
-                    'EXPRESSION',  # paceholder for future substitution
-                    close
-                  ).name('primary__parens'),
-                  literal,
-                  class_,
-                  dot,
-                ).name('primary')
-      suffix = Sequence.new(
-                 primary,
-                 Optional.new(
-                   Or.new(question, star, plus)
-                 ).name('suffix__optional'),
-               ).name('suffix')
-      prefix = Sequence.new(
-                 Optional.new(
-                   Or.new(and_, not_)
-                 ).name('prefix__optional'),
-                 suffix
-               ).name('prefix')
-      sequence = ZeroOrMore.new(prefix).name('sequence')
-      expression = Sequence.new(
-                     sequence,
-                     ZeroOrMore.new(
-                       Sequence.new(
-                         slash,
-                         sequence
-                       ).name('expression__sequence')
-                     ).name('expression__zeroormore')
-                   ).name('expression')
-      if primary.children[1].children[1] != 'EXPRESSION'
-        raise 'Invalid PEG grammar'
-      else
-        primary.children[1].children[1] = expression
-      end
-      definition = Sequence.new(
-                     identifier,
-                     left_arrow,
-                     expression
-                   ).name('definition')
-      # In the original PEG paper `grammar` is specified as:
-      #     grammar <- spacing definition+ end_of_file
-      # but we skip `end_of_file` allowing the grammar to
-      # match just a part of source in order to know where
-      # the syntax error occured.
-      grammar = Sequence.new(
-                  spacing,
-                  OneOrMore.new(definition).name('grammar__oneormore')
-                ).name('grammar')
-
-      grammar
+      @source.class == Array ? @source : PEGLanguage.new.eval(@source)
     end
   end
 
   class ReferenceResolver
     def initialize(rules)
+      raise 'assertion error' if rules.class != Array
       rules = rules.map {|rule| [rule.name, rule]}
       @rules = Hash[rules]
     end
@@ -386,7 +192,7 @@ module PEG
 
     def _resolve(rule)
       if rule.class == Reference
-        _resolve(@rules[rule.reference])
+        _resolve(@rules.fetch(rule.reference))
       else
         old_children = rule.children
         rule.children = []  # avoid infinite reqursion of _resolve
@@ -405,7 +211,8 @@ module PEG
       @rules = {} if not @rules
       @blocks = {} if not @blocks
       if rule.class == String
-        rule = GrammarGenerator.visit(Grammar.peg_grammar.parse(rule))[0]
+        #rule = GrammarGenerator.visit(PEG::peg_grammar.parse(rule))[0]
+        rule = PEGLanguage.new.eval(rule)[0]
       end
       name = rule.name
       @rules[name] = rule
@@ -433,5 +240,214 @@ module PEG
         raise "`rule` expects a block with signature |node| or |node, children|"
       end
     end
+  end
+
+  class PEGLanguage < PEG::Language
+    def self.ref(name)
+      Reference.new(name)
+    end
+
+    def self.lit(name)
+      Literal.new(name)
+    end
+
+    # grammar <- spacing grammar__oneormore
+    _ = Sequence.new(ref('spacing'), ref('grammar__oneormore')).name('grammar')
+    rule _ do |node, children|
+      spacing, definitions = children
+      definitions
+    end
+
+    # grammar__oneormore <- definition+
+    _ = OneOrMore.new(ref('definition')).name('grammar__oneormore')
+    rule _ do |node, children|
+      children
+    end
+
+    # definition <- identifier left_arrow expression
+    _ = Sequence.new(ref('identifier'),
+                     ref('left_arrow'),
+                     ref('expression')).name('definition')
+    rule _ do |node, children|
+      identifier, left_arrow, expression = children
+      expression.name(identifier.reference)
+    end
+
+    # expression__sequence <- slash sequence
+    _ = Sequence.new(ref('slash'), ref('sequence')).name('expression__sequence')
+    rule _ do |node, children|
+      slash, sequence = children
+      sequence
+    end
+
+    # expression__zeroormore <- expression__sequence*
+    _ = ZeroOrMore.new(
+      ref('expression__sequence')).name('expression__zeroormore')
+    rule _ do |node, children|
+      children
+    end
+
+    # expression <- sequence expression__zeroormore
+    _ = Sequence.new(ref('sequence'),
+                     ref('expression__zeroormore')).name('expression')
+    rule _ do |node, children|
+      sequence, rest = children
+      rest.length == 0 ? sequence : Or.new(sequence, *rest)
+    end
+
+    # sequence <- prefix*
+    _ = ZeroOrMore.new(ref('prefix')).name('sequence')
+    rule _ do |node, children|
+      children.length == 1 ? children[0] : Sequence.new(*children)
+    end
+
+    # prefix__optional <- (and / not)?
+    _ = Optional.new(Or.new(ref('and'), ref('not'))).name('prefix__optional')
+    rule _ do |node, children|
+      node.text.strip  # HACK
+    end
+
+    # prefix <- prefix__optional suffix
+    _ = Sequence.new(ref('prefix__optional'), ref('suffix')).name('prefix')
+    rule _ do |node, children|
+      prefix, suffix = children
+      prefix == '' ? suffix : {'&' => And, '!' => Not}.fetch(prefix).new(suffix)
+    end
+
+    # suffix__optional <- (question / star / plus)?
+    _ = Optional.new(Or.new(ref('question'),
+                            ref('star'),
+                            ref('plus'))).name('suffix__optional')
+    rule _ do |node, children|
+      node.text.strip  # HACK
+    end
+
+    # suffix <- primary suffix__optional
+    _ = Sequence.new(ref('primary'), ref('suffix__optional')).name('suffix')
+    rule _ do |node, children|
+      primary, optional_suffix = children
+      optional_suffix == '' ? primary : {
+        '?' => Optional,
+        '*' => ZeroOrMore,
+        '+' => OneOrMore,
+      }.fetch(optional_suffix).new(primary)
+    end
+
+    # primary__sequence <- identifier !left_arrow
+    _ = Sequence.new(ref('identifier'),
+                     Not.new(ref('left_arrow'))).name('primary__sequence')
+    rule _ do |node, children|
+      identifier, not_left_arrow = children
+      identifier
+    end
+
+    # primary__parens <- open expression close
+    _ = Sequence.new(ref('open'),
+                     ref('expression'),
+                     ref('close')).name('primary__parens')
+    rule _ do |node, children|
+      open, expression, close = children
+      expression
+    end
+
+    # primary <- primary__sqeuence / primary__parens / literal / class / dot
+    _ = Or.new(ref('primary__sequence'),
+               ref('primary__parens'),
+               ref('literal'),
+               ref('class'),
+               ref('dot')).name('primary')
+    rule _ do |node, children|
+      children[0]
+    end
+
+    # identifier__regex <- [A-Za-z0-9_]+
+    _ = Regex.new('[A-Za-z0-9_]+').name('identifier__regex')
+    rule _ do |node, children|
+      node.text
+    end
+
+    # identifier = identifier__regex spacing  # HACK simplified
+    _ = Sequence.new(ref('identifier__regex'),
+                     ref('spacing')).name('identifier')
+    rule _ do |node, children|
+      identifier_regex, spacing = children
+      Reference.new(identifier_regex)
+    end
+
+    # class <- '[' ... ']' spacing  # HACK simplified
+    _ = Sequence.new(Regex.new('\[.*?\]'), ref('spacing')).name('class')
+    rule _ do |node, children|
+      class_, spacing = children
+      #Regex.new(class_.text)  # TODO why won't this work?
+      Regex.new(node.text.strip)
+    end
+
+    # literal <- (['] ... ['] / ["] ... ["]) spacing  # HACK simplified
+    _ = Sequence.new(Or.new(Regex.new("'.*?'"), Regex.new('".*?"')),
+                     ref('spacing')).name('literal')
+    rule _ do |node, children|
+      Literal.new(Kernel.eval(node.text))
+    end
+
+    # dot <- '.' spacing
+    _ = Sequence.new(lit('.'), ref('spacing')).name('dot')
+    rule(_) { |node, children| Regex.new('.') }
+
+    # and <- '&' spacing
+    _ = Sequence.new(lit('&'), ref('spacing')).name('and')
+    rule(_) { |node, children| node }
+
+    # not <- '!' spacing
+    _ = Sequence.new(lit('!'), ref('spacing')).name('not')
+    rule(_) { |node, children| node }
+
+    # slash <- '/' spacing
+    _ = Sequence.new(lit('/'), ref('spacing')).name('slash')
+    rule(_) { |node, children| node }
+
+    # left_arrow <- '<-' spacing
+    _ = Sequence.new(lit('<-'), ref('spacing')).name('left_arrow')
+    rule(_) { |node, children| node }
+
+    # question <- '?' spacing
+    _ = Sequence.new(lit('?'), ref('spacing')).name('question')
+    rule(_) { |node, children| node }
+
+    # star <- '*' spacing
+    _ = Sequence.new(lit('*'), ref('spacing')).name('star')
+    rule(_) { |node, children| node }
+
+    # plus <- '+' spacing
+    _ = Sequence.new(lit('+'), ref('spacing')).name('plus')
+    rule(_) { |node, children| node }
+
+    # open <- '(' spacing
+    _ = Sequence.new(lit('('), ref('spacing')).name('open')
+    rule(_) { |node, children| node }
+
+    # close <- ')' spacing
+    _ = Sequence.new(lit(')'), ref('spacing')).name('close')
+    rule(_) { |node, children| node }
+
+    # spacing <- (space / comment)*
+    _ = ZeroOrMore.new(Or.new(ref('space'), ref('comment'))).name('spacing')
+    rule(_) { |node, children| node }
+
+    # comment <- '#' (!end_of_line .)* end_of_line
+    _ = Sequence.new(
+      lit('#'),
+      ZeroOrMore.new(
+        Sequence.new(Not.new(ref('end_of_line')), Regex.new('.'))
+      ),
+      ref('end_of_line')).name('comment')
+    rule(_) { |node, children| node }
+
+    # space <- " " / "\t" / end_of_line
+    _ = Or.new(lit(" "), lit("\t"), ref('end_of_line')).name('space')
+    rule(_) { |node, children| node }
+
+    # end_of_line <- "\r\n" / "\n" / "\r"
+    _ = Or.new(lit("\r\n"), lit("\n"), lit("\r")).name('end_of_line')
+    rule(_) { |node, children| node }
   end
 end

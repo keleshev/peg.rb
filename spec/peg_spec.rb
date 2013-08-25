@@ -197,7 +197,8 @@ describe Language do
     class Foo < Language
       rule(Sequence.new(Reference.new('bar'),
                         Literal.new('')).name('foo')) { |node, children| 'ok' }
-      rule(Literal.new('foo').name('bar')) { |node, children| 'ok' }
+      foo = Literal.new('foo').name('bar')
+      rule(foo) { |node, children| 'ok' }
     end
     Foo.new.eval('foo').should == 'ok'
   end
