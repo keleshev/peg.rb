@@ -5,7 +5,7 @@ module PEG
     end
 
     def inspect
-      "#{self.class}.new(#{_inspect})"
+      "#{self.class}.new(#{arguments.map(&:inspect).join(', ')})"
     end
   end
 
@@ -16,8 +16,8 @@ module PEG
       @text, @children, @name = text, children, name
     end
 
-    def _inspect
-      "#{text.inspect}, #{children.inspect}, #{name.inspect}"
+    def arguments
+      [@text, @children, @name]
     end
   end
 
@@ -52,8 +52,8 @@ module PEG
       node
     end
 
-    def _inspect
-      [@name.inspect, @children[0].inspect].join(', ')
+    def arguments
+      [@name, @children[0]]
     end
   end
 
@@ -67,8 +67,8 @@ module PEG
       text.start_with?(@literal) ? Node.new(@literal) : nil
     end
 
-    def _inspect
-      @literal.inspect
+    def arguments
+      [@literal]
     end
   end
 
@@ -94,8 +94,8 @@ module PEG
       Node.new(text.slice(0...len), children)
     end
 
-    def _inspect
-      @children.map(&:inspect).join(', ')
+    def arguments
+      @children
     end
   end
 
