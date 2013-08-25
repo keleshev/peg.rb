@@ -262,7 +262,8 @@ module PEG
 
   class Grammar < Sequence
     def initialize(source)
-      @_nodes = peg_grammar.parse(source)
+      source = self.class.peg_grammar.parse(source) if source.class == String
+      @_nodes = source
       @children = [ReferenceResolver.new(grammar).resolve]
     end
 
@@ -271,10 +272,10 @@ module PEG
     end
 
     def grammar
-      GrammarGenerator.visit(@_nodes)
+      @_nodes.class == Array ? @_nodes : GrammarGenerator.visit(@_nodes)
     end
 
-    def peg_grammar
+    def self.peg_grammar
       end_of_line = Or.new(
                       Literal.new("\r\n"),
                       Literal.new("\n"),
@@ -385,20 +386,17 @@ module PEG
 
     def _resolve(rule)
       if rule.class == Reference
-        rule = @rules[rule.reference]
-        _resolve(rule)
+        _resolve(@rules[rule.reference])
       else
         old_children = rule.children
         rule.children = []  # avoid infinite reqursion of _resolve
-        new_children = old_children.map {|child| _resolve(child)}
-        rule.children = new_children
+        rule.children = old_children.map {|child| _resolve(child)}
         rule
       end
     end
   end
 
   class Language
-
     class << self
       attr_accessor :rules, :blocks
     end
@@ -406,14 +404,17 @@ module PEG
     def self.rule(rule, &block)
       @rules = {} if not @rules
       @blocks = {} if not @blocks
-      name = rule.split('<-')[0].strip
+      if rule.class == String
+        rule = GrammarGenerator.visit(Grammar.peg_grammar.parse(rule))[0]
+      end
+      name = rule.name
       @rules[name] = rule
       @blocks[name] = block
     end
 
     def grammar
       # we rely on the fact that 1.9+ Hash maintains order
-      @grammar ||= Grammar.new(self.class.rules.values.join("\n"))
+      @grammar ||= Grammar.new(self.class.rules.values)
     end
 
     def eval(source)

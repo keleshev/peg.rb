@@ -187,8 +187,17 @@ end
 describe Language do
   it 'does not evaluate children recursively if block arity is 1' do
     class Foo < Language
-      rule('foo <- bar ""') { |node| 'ok' }  # TODO breaks with 'foo <- bar ""'
+      rule('foo <- bar ""') { |node| 'ok' }  # TODO breaks with 'foo <- bar'
       rule('bar <- "foo"')  { |node| raise('fail') }
+    end
+    Foo.new.eval('foo').should == 'ok'
+  end
+
+  it 'allows expressions as rules' do
+    class Foo < Language
+      rule(Sequence.new(Reference.new('bar'),
+                        Literal.new('')).name('foo')) { |node, children| 'ok' }
+      rule(Literal.new('foo').name('bar')) { |node, children| 'ok' }
     end
     Foo.new.eval('foo').should == 'ok'
   end
