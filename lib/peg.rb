@@ -251,17 +251,12 @@ module PEG
       Literal.new(name)
     end
 
-    # grammar <- spacing grammar__oneormore
-    _ = Sequence.new(ref('spacing'), ref('grammar__oneormore')).name('grammar')
+    # grammar <- spacing definition+
+    _ = Sequence.new(ref('spacing'),
+                     OneOrMore.new(ref('definition'))).name('grammar')
     rule _ do |node, children|
       spacing, definitions = children
       definitions
-    end
-
-    # grammar__oneormore <- definition+
-    _ = OneOrMore.new(ref('definition')).name('grammar__oneormore')
-    rule _ do |node, children|
-      children
     end
 
     # definition <- identifier left_arrow expression
@@ -273,25 +268,14 @@ module PEG
       expression.name(identifier.reference)
     end
 
-    # expression__sequence <- slash sequence
-    _ = Sequence.new(ref('slash'), ref('sequence')).name('expression__sequence')
-    rule _ do |node, children|
-      slash, sequence = children
-      sequence
-    end
-
-    # expression__zeroormore <- expression__sequence*
-    _ = ZeroOrMore.new(
-      ref('expression__sequence')).name('expression__zeroormore')
-    rule _ do |node, children|
-      children
-    end
-
-    # expression <- sequence expression__zeroormore
-    _ = Sequence.new(ref('sequence'),
-                     ref('expression__zeroormore')).name('expression')
+    # expression <- sequence (slash sequence)*
+    _ = Sequence.new(
+      ref('sequence'),
+      ZeroOrMore.new(Sequence.new(ref('slash'), ref('sequence')))
+    ).name('expression')
     rule _ do |node, children|
       sequence, rest = children
+      rest = rest.map { |slash, sequence| sequence }
       rest.length == 0 ? sequence : Or.new(sequence, *rest)
     end
 
@@ -301,36 +285,29 @@ module PEG
       children.length == 1 ? children[0] : Sequence.new(*children)
     end
 
-    # prefix__optional <- (and / not)?
-    _ = Optional.new(Or.new(ref('and'), ref('not'))).name('prefix__optional')
+    # prefix <- (and / not)? suffix
+    _ = Sequence.new(Optional.new(Or.new(ref('and'), ref('not'))),
+                     ref('suffix')).name('prefix')
     rule _ do |node, children|
-      node.text.strip  # HACK
-    end
-
-    # prefix <- prefix__optional suffix
-    _ = Sequence.new(ref('prefix__optional'), ref('suffix')).name('prefix')
-    rule _ do |node, children|
-      prefix, suffix = children
+      suffix = children[1]
+      prefix = node.children[0].text.strip  # HACK
       prefix == '' ? suffix : {'&' => And, '!' => Not}.fetch(prefix).new(suffix)
     end
 
-    # suffix__optional <- (question / star / plus)?
-    _ = Optional.new(Or.new(ref('question'),
-                            ref('star'),
-                            ref('plus'))).name('suffix__optional')
+    # suffix <- primary (question / star / plus)?
+    _ = Sequence.new(
+      ref('primary'),
+      Optional.new(Or.new(ref('question'), ref('star'), ref('plus')))
+    ).name('suffix')
     rule _ do |node, children|
-      node.text.strip  # HACK
-    end
-
-    # suffix <- primary suffix__optional
-    _ = Sequence.new(ref('primary'), ref('suffix__optional')).name('suffix')
-    rule _ do |node, children|
-      primary, optional_suffix = children
-      optional_suffix == '' ? primary : {
-        '?' => Optional,
-        '*' => ZeroOrMore,
-        '+' => OneOrMore,
-      }.fetch(optional_suffix).new(primary)
+      primary = children[0]
+      suffix = node.children[1].text.strip  # HACK
+      {
+        '' => primary,
+        '?' => Optional.new(primary),
+        '*' => ZeroOrMore.new(primary),
+        '+' => OneOrMore.new(primary),
+      }.fetch(suffix)
     end
 
     # primary__sequence <- identifier !left_arrow
@@ -360,17 +337,11 @@ module PEG
       children[0]
     end
 
-    # identifier__regex <- [A-Za-z0-9_]+
-    _ = Regex.new('[A-Za-z0-9_]+').name('identifier__regex')
-    rule _ do |node, children|
-      node.text
-    end
-
-    # identifier = identifier__regex spacing  # HACK simplified
-    _ = Sequence.new(ref('identifier__regex'),
+    # identifier = [A-Za-z0-9_]+ spacing  # HACK simplified
+    _ = Sequence.new(Regex.new('[A-Za-z0-9_]+'),
                      ref('spacing')).name('identifier')
     rule _ do |node, children|
-      identifier_regex, spacing = children
+      identifier_regex = node.children[0].text
       Reference.new(identifier_regex)
     end
 
@@ -393,45 +364,27 @@ module PEG
     _ = Sequence.new(lit('.'), ref('spacing')).name('dot')
     rule(_) { |node, children| Regex.new('.') }
 
-    # and <- '&' spacing
-    _ = Sequence.new(lit('&'), ref('spacing')).name('and')
-    rule(_) { |node, children| node }
+    node = proc { |node, children| node }
+    def self.token(source)
+      match = /(\S+) *<- "(\S+)" spacing/.match(source)
+      block = proc { |node, children| node }
+      rule Sequence.new(Literal.new(match[2]),
+                        Reference.new('spacing')).name(match[1]), &block
+    end
 
-    # not <- '!' spacing
-    _ = Sequence.new(lit('!'), ref('spacing')).name('not')
-    rule(_) { |node, children| node }
-
-    # slash <- '/' spacing
-    _ = Sequence.new(lit('/'), ref('spacing')).name('slash')
-    rule(_) { |node, children| node }
-
-    # left_arrow <- '<-' spacing
-    _ = Sequence.new(lit('<-'), ref('spacing')).name('left_arrow')
-    rule(_) { |node, children| node }
-
-    # question <- '?' spacing
-    _ = Sequence.new(lit('?'), ref('spacing')).name('question')
-    rule(_) { |node, children| node }
-
-    # star <- '*' spacing
-    _ = Sequence.new(lit('*'), ref('spacing')).name('star')
-    rule(_) { |node, children| node }
-
-    # plus <- '+' spacing
-    _ = Sequence.new(lit('+'), ref('spacing')).name('plus')
-    rule(_) { |node, children| node }
-
-    # open <- '(' spacing
-    _ = Sequence.new(lit('('), ref('spacing')).name('open')
-    rule(_) { |node, children| node }
-
-    # close <- ')' spacing
-    _ = Sequence.new(lit(')'), ref('spacing')).name('close')
-    rule(_) { |node, children| node }
+    token 'and        <- "&" spacing'
+    token 'not        <- "!" spacing'
+    token 'slash      <- "/" spacing'
+    token 'left_arrow <- "<-" spacing'
+    token 'question   <- "?" spacing'
+    token 'star       <- "*" spacing'
+    token 'plus       <- "+" spacing'
+    token 'open       <- "(" spacing'
+    token 'close      <- ")" spacing'
 
     # spacing <- (space / comment)*
     _ = ZeroOrMore.new(Or.new(ref('space'), ref('comment'))).name('spacing')
-    rule(_) { |node, children| node }
+    rule _, &node
 
     # comment <- '#' (!end_of_line .)* end_of_line
     _ = Sequence.new(
@@ -440,14 +393,12 @@ module PEG
         Sequence.new(Not.new(ref('end_of_line')), Regex.new('.'))
       ),
       ref('end_of_line')).name('comment')
-    rule(_) { |node, children| node }
+    rule _, &node
 
     # space <- " " / "\t" / end_of_line
-    _ = Or.new(lit(" "), lit("\t"), ref('end_of_line')).name('space')
-    rule(_) { |node, children| node }
+    rule Or.new(lit(" "), lit("\t"), ref('end_of_line')).name('space'), &node
 
     # end_of_line <- "\r\n" / "\n" / "\r"
-    _ = Or.new(lit("\r\n"), lit("\n"), lit("\r")).name('end_of_line')
-    rule(_) { |node, children| node }
+    rule Or.new(lit("\r\n"), lit("\n"), lit("\r")).name('end_of_line'), &node
   end
 end
