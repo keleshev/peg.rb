@@ -165,7 +165,6 @@ module PEG
 
   class ReferenceResolver
     def initialize(rules)
-      raise 'assertion error' if rules.class != Array
       rules = rules.map {|rule| [rule.name, rule]}
       @rules = Hash[rules]
     end
@@ -195,13 +194,9 @@ module PEG
     def self.rule(rule, &block)
       @rules = {} if not @rules
       @blocks = {} if not @blocks
-      if rule.class == String
-        #rule = GrammarGenerator.visit(PEG::peg_grammar.parse(rule))[0]
-        rule = PEGLanguage.new.eval(rule)[0]
-      end
-      name = rule.name
-      @rules[name] = rule
-      @blocks[name] = block
+      rule = PEGLanguage.new.eval(rule)[0] if rule.class == String
+      @rules[rule.name] = rule
+      @blocks[rule.name] = block
     end
 
     def grammar
@@ -228,10 +223,6 @@ module PEG
   end
 
   class PEGLanguage < PEG::Language
-    def self.lit(name)
-      Literal.new(name)
-    end
-
     # grammar <- spacing definition+
     _ = Sequence.new(:spacing, OneOrMore.new(:definition)).name(:grammar)
     rule _ do |node, children|
@@ -258,8 +249,7 @@ module PEG
     end
 
     # sequence <- prefix*
-    _ = ZeroOrMore.new(:prefix).name(:sequence)
-    rule _ do |node, children|
+    rule ZeroOrMore.new(:prefix).name(:sequence) do |node, children|
       children.length == 1 ? children[0] : Sequence.new(*children)
     end
 
@@ -279,32 +269,31 @@ module PEG
     rule _ do |node, children|
       primary = children[0]
       suffix = node.children[1].text.strip  # HACK
-      {
-        '' => primary,
+      { '' => primary,
         '?' => Optional.new(primary),
         '*' => ZeroOrMore.new(primary),
         '+' => OneOrMore.new(primary),
       }.fetch(suffix)
     end
 
-    # primary__sequence <- identifier !left_arrow
+    # _identifier_value <- identifier !left_arrow
     _ = Sequence.new(:identifier,
-                     Not.new(:left_arrow)).name(:primary__sequence)
+                     Not.new(:left_arrow)).name(:_identifier_value)
     rule _ do |node, children|
       identifier, not_left_arrow = children
       identifier
     end
 
-    # primary__parens <- open expression close
-    _ = Sequence.new(:open, :expression, :close).name(:primary__parens)
+    # _parenthesised <- open expression close
+    _ = Sequence.new(:open, :expression, :close).name(:_parenthesised)
     rule _ do |node, children|
       open, expression, close = children
       expression
     end
 
-    # primary <- primary__sqeuence / primary__parens / literal / class / dot
-    _ = Or.new(:primary__sequence,
-               :primary__parens,
+    # primary <- _identifier_value / _parenthesised / literal / class / dot
+    _ = Or.new(:_identifier_value,
+               :_parenthesised,
                :literal,
                :class,
                :dot).name(:primary)
@@ -323,7 +312,6 @@ module PEG
     _ = Sequence.new(Regex.new('\[.*?\]'), :spacing).name(:class)
     rule _ do |node, children|
       class_, spacing = children
-      #Regex.new(class_.text)  # TODO why won't this work?
       Regex.new(node.text.strip)
     end
 
@@ -335,16 +323,15 @@ module PEG
     end
 
     # dot <- '.' spacing
-    _ = Sequence.new(lit('.'), :spacing).name(:dot)
+    _ = Sequence.new(Literal.new('.'), :spacing).name(:dot)
     rule(_) { |node, children| Regex.new('.') }
 
-    node = proc { |node, children| node }
     def self.token(source)
       match = /(\S+) *<- "(\S+)" spacing/.match(source)
-      block = proc { |node, children| node }
-      rule Sequence.new(Literal.new(match[2]),
-                        :spacing).name(match[1].to_sym), &block
+      rule(Sequence.new(Literal.new(match[2]),
+                        :spacing).name(match[1].to_sym)) { |node, _| node }
     end
+    node = proc { |node, children| node }
 
     token 'and        <- "&" spacing'
     token 'not        <- "!" spacing'
@@ -357,22 +344,22 @@ module PEG
     token 'close      <- ")" spacing'
 
     # spacing <- (space / comment)*
-    _ = ZeroOrMore.new(Or.new(:space, :comment)).name(:spacing)
-    rule _, &node
+    rule ZeroOrMore.new(Or.new(:space, :comment)).name(:spacing), &node
 
     # comment <- '#' (!end_of_line .)* end_of_line
-    _ = Sequence.new(
-      lit('#'),
-      ZeroOrMore.new(
-        Sequence.new(Not.new(:end_of_line), Regex.new('.'))
-      ),
-      :end_of_line).name(:comment)
-    rule _, &node
+    rule Sequence.new(
+      Literal.new('#'),
+      ZeroOrMore.new(Sequence.new(Not.new(:end_of_line), Regex.new('.'))),
+      :end_of_line).name(:comment), &node
 
     # space <- " " / "\t" / end_of_line
-    rule Or.new(lit(" "), lit("\t"), :end_of_line).name(:space), &node
+    rule Or.new(Literal.new(" "),
+                Literal.new("\t"),
+                :end_of_line).name(:space), &node
 
     # end_of_line <- "\r\n" / "\n" / "\r"
-    rule Or.new(lit("\r\n"), lit("\n"), lit("\r")).name(:end_of_line), &node
+    rule Or.new(Literal.new("\r\n"),
+                Literal.new("\n"),
+                Literal.new("\r")).name(:end_of_line), &node
   end
 end
