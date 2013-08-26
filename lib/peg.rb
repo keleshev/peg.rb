@@ -282,29 +282,18 @@ module PEG
       }.fetch(suffix)
     end
 
-    # _identifier_value <- identifier !left_arrow
-    rule Rule[:_identifier_value,
-              Sequence[:identifier, Not[:left_arrow]]] do |node, children|
-      children[0]
-    end
-
-    # _parenthesised <- open expression close
-    rule Rule[:_parenthesised,
-              Sequence[:open, :expression, :close]] do |node, children|
-      children[1]
-    end
-
-    # primary <- _identifier_value / _parenthesised / literal / class / dot
-    rule Rule[:primary, Or[:_identifier_value, :_parenthesised,
+    # primary <-
+    #   identifier !left_arrow / open expression close / literal / class / dot
+    rule Rule[:primary, Or[Sequence[:identifier, Not[:left_arrow]],
+                           Sequence[:open, :expression, :close],
                            :literal, :class, :dot]] do |node, children|
-      children[0]
+      children.flatten[0]
     end
 
     # identifier = [A-Za-z0-9_]+ spacing  # HACK simplified
     rule Rule[:identifier,
               Sequence[Regex['[A-Za-z0-9_]+'], :spacing]] do |node, children|
-      identifier_regex = node.children[0].text
-      identifier_regex.to_sym
+      node.children[0].text.to_sym
     end
 
     # class <- '[' ... ']' spacing  # HACK simplified
