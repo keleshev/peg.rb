@@ -170,7 +170,7 @@ module PEG
 
   class ReferenceResolver
     def initialize(rules)
-      rules = rules.map {|rule| [rule.name, rule]}
+      rules = rules.map { |rule| [rule.name, rule] }
       @rules = Hash[rules]
     end
 
@@ -185,7 +185,7 @@ module PEG
       else
         old_children = rule.children
         rule.children = []  # avoid infinite reqursion of _resolve
-        rule.children = old_children.map {|child| _resolve(child)}
+        rule.children = old_children.map { |child| _resolve(child) }
         rule
       end
     end
@@ -214,9 +214,9 @@ module PEG
     end
 
     def _eval(node)
-      block = self.class.blocks[node.name] || proc {|node, children| children}
+      block = self.class.blocks[node.name] || proc { |node, children| children }
       if block.arity == 2
-        children = node.children.map {|child| _eval(child)}
+        children = node.children.map { |child| _eval(child) }
         instance_exec(node, children, &block)
       elsif block.arity == 1
         instance_exec(node, &block)
@@ -327,12 +327,11 @@ module PEG
     rule(_) { |node, children| Regex.new('.') }
 
     def self.token(source)
-      match = /(\S+) *<- "(\S+)" spacing/.match(source)
-      rule(Rule.new(match[1].to_sym,
-                    Sequence.new(Literal.new(match[2]),
-                                 :spacing))) { |node, _| node }
+      /(?<name>\S+) *<- "(?<value>\S+)" spacing/ =~ source
+      rule(Rule.new(name.to_sym,
+                    Sequence.new(Literal.new(value),
+                                 :spacing))) { |node, children| node }
     end
-    node = proc { |node, children| node }
 
     token 'and        <- "&" spacing'
     token 'not        <- "!" spacing'
@@ -343,6 +342,8 @@ module PEG
     token 'plus       <- "+" spacing'
     token 'open       <- "(" spacing'
     token 'close      <- ")" spacing'
+
+    node = proc { |node, children| node }
 
     # spacing <- (space / comment)*
     rule Rule.new(:spacing, ZeroOrMore.new(Or.new(:space, :comment))), &node
@@ -359,9 +360,8 @@ module PEG
                                  :end_of_line)), &node
 
     # end_of_line <- "\r\n" / "\n" / "\r"
-    rule Rule.new(:end_of_line,
-                  Or.new(Literal.new("\r\n"),
-                         Literal.new("\n"),
-                         Literal.new("\r"))), &node
+    rule Rule.new(:end_of_line, Or.new(Literal.new("\r\n"),
+                                       Literal.new("\n"),
+                                       Literal.new("\r"))), &node
   end
 end
