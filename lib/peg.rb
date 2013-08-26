@@ -1,11 +1,15 @@
 module PEG
   class AbstractValue
+    class << self
+      alias [] new
+    end
+
     def ==(other)
       inspect == other.inspect
     end
 
     def inspect
-      "#{self.class}.new(#{arguments.map(&:inspect).join(', ')})"
+      "#{self.class}[#{arguments.map(&:inspect).join(', ')}]"
     end
   end
 
@@ -64,7 +68,7 @@ module PEG
     end
 
     def match(text)
-      text.start_with?(@literal) ? Node.new(@literal) : nil
+      text.start_with?(@literal) ? Node[@literal] : nil
     end
 
     def arguments
@@ -75,7 +79,7 @@ module PEG
   class Regex < Literal
     def match(text)
       res = Regexp.new('\A' + @literal).match(text)
-      res && Node.new(res.to_s)
+      res && Node[res.to_s]
     end
   end
 
@@ -91,7 +95,7 @@ module PEG
         text_ = text_.slice node.text.length..text_.length
         len += node.text.length
       end
-      Node.new(text.slice(0...len), children)
+      Node[text.slice(0...len), children]
     end
 
     def arguments
@@ -103,7 +107,7 @@ module PEG
     def match(text)
       @children.each do |child|
         node = child.match(text)
-        return Node.new(node.text, [node]) if node
+        return Node[node.text, [node]] if node
       end
       nil
     end
@@ -111,13 +115,13 @@ module PEG
 
   class Not < Sequence
     def match(text)
-      @children[0].match(text) ? nil : Node.new('')
+      @children[0].match(text) ? nil : Node['']
     end
   end
 
   class And < Sequence
     def match(text)
-      @children[0].match(text) ? Node.new('') : nil
+      @children[0].match(text) ? Node[''] : nil
     end
   end
 
@@ -141,7 +145,7 @@ module PEG
         len += node.text.length
       end
       in_range = self.class.range.include?(children.length)
-      in_range ? Node.new(text.slice(0...len), children) : nil
+      in_range ? Node[text.slice(0...len), children] : nil
     end
   end
 
@@ -228,109 +232,100 @@ module PEG
 
   class PEGLanguage < PEG::Language
     # grammar <- spacing definition+
-    _ = Rule.new(:grammar, Sequence.new(:spacing, OneOrMore.new(:definition)))
-    rule _ do |node, children|
-      spacing, definitions = children
-      definitions
+    rule Rule[:grammar,
+              Sequence[:spacing, OneOrMore[:definition]]] do |node, children|
+      children[1]
     end
 
     # definition <- identifier left_arrow expression
-    _ = Rule.new(:definition,
-                 Sequence.new(:identifier, :left_arrow, :expression))
-    rule _ do |node, children|
-      identifier, left_arrow, expression = children
-      Rule.new(identifier, expression)
+    rule Rule[:definition, Sequence[:identifier,
+                                    :left_arrow,
+                                    :expression]] do |node, children|
+      identifier, _, expression = children
+      Rule[identifier, expression]
     end
 
     # expression <- sequence (slash sequence)*
-    _ = Rule.new(:expression,
-                 Sequence.new(:sequence,
-                              ZeroOrMore.new(Sequence.new(:slash, :sequence))))
-    rule _ do |node, children|
+    rule Rule[:expression,
+              Sequence[:sequence,
+                       ZeroOrMore[Sequence[:slash,
+                                           :sequence]]]] do |node, children|
       sequence, rest = children
       rest = rest.map { |slash, sequence| sequence }
-      rest.length == 0 ? sequence : Or.new(sequence, *rest)
+      rest.length == 0 ? sequence : Or[sequence, *rest]
     end
 
     # sequence <- prefix*
-    rule Rule.new(:sequence, ZeroOrMore.new(:prefix)) do |node, children|
-      children.length == 1 ? children[0] : Sequence.new(*children)
+    rule Rule[:sequence, ZeroOrMore[:prefix]] do |node, children|
+      children.length == 1 ? children[0] : Sequence[*children]
     end
 
     # prefix <- (and / not)? suffix
-    _ = Rule.new(:prefix,
-                 Sequence.new(Optional.new(Or.new(:and, :not)), :suffix))
-    rule _ do |node, children|
+    rule Rule[:prefix,
+              Sequence[Optional[Or[:and, :not]], :suffix]] do |node, children|
       suffix = children[1]
       prefix = node.children[0].text.strip  # HACK
       prefix == '' ? suffix : {'&' => And, '!' => Not}.fetch(prefix).new(suffix)
     end
 
     # suffix <- primary (question / star / plus)?
-    _ = Rule.new(:suffix,
-         Sequence.new(:primary, Optional.new(Or.new(:question, :star, :plus))))
-    rule _ do |node, children|
+    rule Rule[:suffix,
+              Sequence[:primary, Optional[Or[:question,
+                                             :star,
+                                             :plus]]]] do |node, children|
       primary = children[0]
       suffix = node.children[1].text.strip  # HACK
       { '' => primary,
-        '?' => Optional.new(primary),
-        '*' => ZeroOrMore.new(primary),
-        '+' => OneOrMore.new(primary),
+        '?' => Optional[primary],
+        '*' => ZeroOrMore[primary],
+        '+' => OneOrMore[primary],
       }.fetch(suffix)
     end
 
     # _identifier_value <- identifier !left_arrow
-    _ = Rule.new(:_identifier_value,
-         Sequence.new(:identifier, Not.new(:left_arrow)))
-    rule _ do |node, children|
-      identifier, not_left_arrow = children
-      identifier
+    rule Rule[:_identifier_value,
+              Sequence[:identifier, Not[:left_arrow]]] do |node, children|
+      children[0]
     end
 
     # _parenthesised <- open expression close
-    _ = Rule.new(:_parenthesised, Sequence.new(:open, :expression, :close))
-    rule _ do |node, children|
-      open, expression, close = children
-      expression
+    rule Rule[:_parenthesised,
+              Sequence[:open, :expression, :close]] do |node, children|
+      children[1]
     end
 
     # primary <- _identifier_value / _parenthesised / literal / class / dot
-    _ = Rule.new(:primary, Or.new(:_identifier_value, :_parenthesised,
-                                  :literal, :class, :dot))
-    rule _ do |node, children|
+    rule Rule[:primary, Or[:_identifier_value, :_parenthesised,
+                           :literal, :class, :dot]] do |node, children|
       children[0]
     end
 
     # identifier = [A-Za-z0-9_]+ spacing  # HACK simplified
-    _ = Rule.new(:identifier,
-                 Sequence.new(Regex.new('[A-Za-z0-9_]+'), :spacing))
-    rule _ do |node, children|
+    rule Rule[:identifier,
+              Sequence[Regex['[A-Za-z0-9_]+'], :spacing]] do |node, children|
       identifier_regex = node.children[0].text
       identifier_regex.to_sym
     end
 
     # class <- '[' ... ']' spacing  # HACK simplified
-    _ = Rule.new(:class, Sequence.new(Regex.new('\[.*?\]'), :spacing))
-    rule _ do |node, children|
-      Regex.new(node.text.strip)
+    rule Rule[:class, Sequence[Regex['\[.*?\]'], :spacing]] do |node, children|
+      Regex[node.text.strip]
     end
 
     # literal <- (['] ... ['] / ["] ... ["]) spacing  # HACK simplified
-    _ = Rule.new(:literal, Sequence.new(Or.new(Regex.new("'.*?'"),
-                                               Regex.new('".*?"')), :spacing))
-    rule _ do |node, children|
-      Literal.new(Kernel.eval(node.text))
+    rule Rule[:literal, Sequence[Or[Regex["'.*?'"], Regex['".*?"']],
+                                 :spacing]] do |node, children|
+      Literal[Kernel.eval(node.text)]
     end
 
     # dot <- '.' spacing
-    _ = Rule.new(:dot, Sequence.new(Literal.new('.'), :spacing))
-    rule(_) { |node, children| Regex.new('.') }
+    rule Rule[:dot, Sequence[Literal['.'], :spacing]] do |node, children|
+      Regex['.']
+    end
 
     def self.token(source)
       /(?<name>\S+) *<- "(?<value>\S+)" spacing/ =~ source
-      rule(Rule.new(name.to_sym,
-                    Sequence.new(Literal.new(value),
-                                 :spacing))) { |node, children| node }
+      rule Rule[name.to_sym, Sequence[Literal[value], :spacing]]
     end
 
     token 'and        <- "&" spacing'
@@ -343,25 +338,18 @@ module PEG
     token 'open       <- "(" spacing'
     token 'close      <- ")" spacing'
 
-    node = proc { |node, children| node }
-
     # spacing <- (space / comment)*
-    rule Rule.new(:spacing, ZeroOrMore.new(Or.new(:space, :comment))), &node
+    rule Rule[:spacing, ZeroOrMore[Or[:space, :comment]]]
 
     # comment <- '#' (!end_of_line .)* end_of_line
-    rule Rule.new(:comment,
-          Sequence.new(Literal.new('#'),
-                       ZeroOrMore.new(Sequence.new(Not.new(:end_of_line),
-                                                   Regex.new('.'))))), &node
+    rule Rule[:comment,
+              Sequence[Literal['#'], ZeroOrMore[Sequence[Not[:end_of_line],
+                                                         Regex['.']]]]]
 
     # space <- " " / "\t" / end_of_line
-    rule Rule.new(:space, Or.new(Literal.new(" "),
-                                 Literal.new("\t"),
-                                 :end_of_line)), &node
+    rule Rule[:space, Or[Literal[" "], Literal["\t"], :end_of_line]]
 
     # end_of_line <- "\r\n" / "\n" / "\r"
-    rule Rule.new(:end_of_line, Or.new(Literal.new("\r\n"),
-                                       Literal.new("\n"),
-                                       Literal.new("\r"))), &node
+    rule Rule[:end_of_line, Or[Literal["\r\n"], Literal["\n"], Literal["\r"]]]
   end
 end
