@@ -230,7 +230,7 @@ module PEG
     end
   end
 
-  class PEGLanguage < PEG::Language
+  class PEGLanguage < Language
     # grammar <- spacing definition+
     rule Rule[:grammar,
               Sequence[:spacing, OneOrMore[:definition]]] do |node, children|
