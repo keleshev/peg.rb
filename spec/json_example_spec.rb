@@ -28,4 +28,9 @@ describe JSONLanguage do
     JSON.eval('{"a":1}').should == {"a" => 1}
     JSON.eval('{"a":1,"b":2,"c":3}').should == {"a" => 1, "b" => 2, "c" => 3}
   end
+
+  it 'can deal with extra whitespace' do
+    JSON.eval(' { "a" : [ 1 , 2 , { "b" : 3 } ], "c" : 4 } ')
+      .should == {"a" => [1, 2, {"b" => 3}], "c" => 4}
+  end
 end
