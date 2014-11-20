@@ -1,7 +1,7 @@
 require_relative '../examples/json_example'
 
 
-describe JSONLanguage do
+describe JSON do
   it 'has numbers' do
     JSON.eval('42').should == 42
     JSON.eval('-1.2e-3') == -1.2e-3

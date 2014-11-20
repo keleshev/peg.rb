@@ -1,12 +1,16 @@
 require_relative '../lib/peg'
 
-class JSONLanguage < PEG::Language
+class JSON < PEG::Language
+  def self.eval(source)
+    super(source, :value)
+  end
+
   rule 'value <-
           _ (string / number / object / array / bool)' do |node, children|
     children[1][0]
   end
 
-  def collection(node, children)
+  def self.collection(node, children)
     _, _, values, _ = children
     return [] if values == []
     first, rest = values[0]
@@ -28,15 +32,15 @@ class JSONLanguage < PEG::Language
   end
 
   rule 'bool <- ("true" / "false" / "null") _' do |node, children|
-    {true: true, false: false, null: nil}[node.text.strip.to_sym]
+    {true: true, false: false, null: nil}[node.to_s.strip.to_sym]
   end
 
   rule 'number <- integer fraction? exponent? _' do |node, children|
-    node.text.to_f
+    node.to_s.to_f
   end
 
   rule 'string <- ["] (!["] .)* ["] _' do |node, children|
-    Kernel.eval(node.text)  # HACK
+    Kernel.eval(node.to_s)  # HACK
   end
 
   rule 'integer <- "-"? (([1-9] [0-9]+) / [0-9])'
@@ -44,5 +48,3 @@ class JSONLanguage < PEG::Language
   rule 'exponent <- [eE] [+-]? [0-9]+'
   rule '_ <- [ \t\r\n]*'  # Shortcut for optional whitespace.
 end
-
-JSON = JSONLanguage.new
