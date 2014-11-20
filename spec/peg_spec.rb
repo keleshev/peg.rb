@@ -127,9 +127,9 @@ describe Grammar do
   end
 
   it 'raises SyntaxError on invalid grammar' do
-    expect do
+    should.raise SyntaxError do
       Grammar.new("rule <- [a-z] %$@^")
-    end.to raise_error SyntaxError, "%$@^".inspect
+    end
   end
 
   it 'can actually parse' do
@@ -143,9 +143,9 @@ describe Grammar do
   end
 
   it 'raises SyntaxError on invalid syntax' do
-    expect do
+    should.raise SyntaxError do
       Grammar.new("rule <- [a-z]*").parse('abc123')
-    end.to raise_error SyntaxError, "123".inspect
+    end
   end
 end
 
@@ -168,6 +168,7 @@ describe ReferenceResolver do
   it 'resolves recursive references' do
     rule = Rule[:rule, Sequence[Literal['['], Optional[:rule], Literal[']']]]
     ReferenceResolver.new([rule]).resolve
+    1.should == 1
   end
 
   it 'resolves multiple recursive references' do
@@ -176,6 +177,7 @@ describe ReferenceResolver do
                                 Optional[:rule],
                                 Literal[']']]]
     ReferenceResolver.new([rule]).resolve
+    1.should == 1
   end
 end
 
